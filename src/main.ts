@@ -27,6 +27,8 @@ type CardSource =
 
 let state = createGame();
 let selected: Selection | null = null;
+let returningSelection: Selection | null = null;
+let returnGeneration = 0;
 let message = "Select a card or a valid run.";
 let dragGeneration = 0;
 let dragGrabOffset = { x: 0, y: 0 };
@@ -34,7 +36,9 @@ let dragOrigin = { x: 0, y: 0 };
 let isCancelling = false;
 let isDealing = false;
 let isAutoPlaying = false;
+let isManualAnimating = false;
 let autoGeneration = 0;
+let manualGeneration = 0;
 let dealGeneration = 0;
 let pendingDealIds = new Set<string>();
 const app = document.querySelector<HTMLElement>("#app")!;
@@ -48,7 +52,7 @@ function render(): void {
     <section class="top-row">
       ${state.stock.length === 0
         ? `<button class="stock empty" data-destination="freeCell">${state.freeCell && selected?.source !== "freeCell" ? renderCard(state.freeCell, { source: "freeCell" }) : "<span>Free cell</span>"}</button>`
-        : `<button class="stock" data-target="deal" ${isDealing || isAutoPlaying ? "disabled" : ""} aria-label="Deal three cards; ${state.stock.length} remaining"><span class="deck-back" aria-hidden="true"></span><span class="stock-label">${state.stock.length}</span></button>`}
+        : `<button class="stock" data-target="deal" ${isDealing || isAutoPlaying || isManualAnimating ? "disabled" : ""} aria-label="Deal three cards; ${state.stock.length} remaining"><span class="deck-back" aria-hidden="true"></span><span class="stock-label">${state.stock.length}</span></button>`}
       <div class="waste-slot" aria-label="Dealt card history"><span class="draw-base">Draw pile</span>${renderWasteHistory()}</div>
     </section>
     <section class="board">
@@ -78,7 +82,8 @@ function renderFoundation(suit: Suit): string {
 }
 
 function renderPile(pile: Card[], pileIndex: number): string {
-  const visiblePile = selected?.source === "tableau" && selected.pile === pileIndex ? pile.slice(0, selected.startIndex) : pile;
+  const heldStart = selected?.source === "tableau" && selected.pile === pileIndex ? selected.startIndex : null;
+  const visiblePile = heldStart === null ? pile : pile.slice(0, heldStart);
   const cards = visiblePile.map((card, cardIndex) =>
     renderCard(card, { source: "tableau", pile: pileIndex, startIndex: cardIndex }, "", `top:${cardIndex * 34}px; z-index:${cardIndex + 1}`),
   ).join("");
@@ -88,31 +93,34 @@ function renderPile(pile: Card[], pileIndex: number): string {
 function renderCard(card: Card, source?: CardSource, extraClass = "", inlineStyle = ""): string {
   const isSelected = selected && selected.source === source?.source &&
     (source?.source !== "tableau" || (selected.source === "tableau" && selected.pile === source.pile && selected.startIndex === source.startIndex));
+  const isReturning = Boolean(source) && Boolean(returningSelection?.cards.some((returningCard) => returningCard.id === card.id));
   const attrs = source?.source === "tableau"
     ? `data-source="tableau" data-pile="${source.pile}" data-start-index="${source.startIndex}"`
     : source?.source ? `data-source="${source.source}"` : "";
   const rank = rankLabel(card);
   const suit = suitSymbol(card.suit);
-  return `<span class="card ${cardColor(card)} ${isSelected ? "selected" : ""} ${pendingDealIds.has(card.id) ? "dealing-hidden" : ""} ${extraClass}" data-card-id="${card.id}" ${attrs} ${inlineStyle ? `style="${inlineStyle}"` : ""}><b class="card-corner card-rank-top">${rank}</b><b class="card-corner card-suit-top">${suit}</b><i>${suit}</i><b class="card-corner card-suit-bottom">${suit}</b><b class="card-corner card-rank-bottom">${rank}</b></span>`;
+  return `<span class="card ${cardColor(card)} ${isSelected ? "selected" : ""} ${isReturning ? "returning-hidden" : ""} ${pendingDealIds.has(card.id) ? "dealing-hidden" : ""} ${extraClass}" data-card-id="${card.id}" ${attrs} ${inlineStyle ? `style="${inlineStyle}"` : ""}><b class="card-corner card-rank-top">${rank}</b><b class="card-corner card-suit-top">${suit}</b><i>${suit}</i><b class="card-corner card-suit-bottom">${suit}</b><b class="card-corner card-rank-bottom">${rank}</b></span>`;
 }
 
 function attachEvents(): void {
   document.querySelector("#new-game")?.addEventListener("click", () => {
-    state = createGame(); selected = null; isCancelling = false; isAutoPlaying = false; autoGeneration += 1; dragGeneration += 1;
+    state = createGame(); selected = null; returningSelection = null; returnGeneration += 1; isCancelling = false; isAutoPlaying = false; isManualAnimating = false; autoGeneration += 1; manualGeneration += 1; dragGeneration += 1;
+    document.querySelectorAll(".returning-ghost").forEach((ghost) => ghost.remove());
     startInitialDeal();
   });
   document.querySelector("[data-target='deal']")?.addEventListener("click", deal);
-  document.querySelector(".waste-slot")?.addEventListener("click", () => {
-    if (selected?.source === "waste") cancelSelection();
+  document.querySelector(".waste-slot")?.addEventListener("pointerdown", (event) => {
+    if (event instanceof PointerEvent && event.button === 0 && selected?.source === "waste") cancelSelection();
   });
-  document.querySelectorAll<HTMLElement>("[data-source]").forEach((element) => element.addEventListener("click", selectSource));
-  document.querySelectorAll<HTMLElement>("[data-destination]").forEach((element) => element.addEventListener("click", moveToDestination));
+  document.querySelectorAll<HTMLElement>("[data-source]").forEach((element) => element.addEventListener("pointerdown", selectSource));
+  document.querySelectorAll<HTMLElement>("[data-destination]").forEach((element) => element.addEventListener("pointerdown", moveToDestination));
 }
 
 function selectSource(event: Event): void {
+  if (event instanceof PointerEvent && event.button !== 0) return;
   event.stopPropagation();
   const element = event.currentTarget as HTMLElement;
-  if (isCancelling || isDealing || isAutoPlaying) return;
+  if (isCancelling || isDealing || isAutoPlaying || isManualAnimating) return;
   if (selected) {
     const destination = element.closest<HTMLElement>("[data-destination]");
     if (destination) moveToDestinationElement(destination);
@@ -140,6 +148,7 @@ function selectSource(event: Event): void {
     selected = { source, cards: [state.freeCell] };
   }
   if (!selected) return;
+  claimReturningCards(selected.cards);
   const pointer = event as MouseEvent;
   const bounds = element.getBoundingClientRect();
   dragGrabOffset = { x: pointer.clientX - bounds.left, y: pointer.clientY - bounds.top };
@@ -151,7 +160,8 @@ function selectSource(event: Event): void {
 }
 
 function moveToDestination(event: Event): void {
-  if (!selected || isCancelling || isDealing || isAutoPlaying) return;
+  if (event instanceof PointerEvent && event.button !== 0) return;
+  if (!selected || isCancelling || isDealing || isAutoPlaying || isManualAnimating) return;
   moveToDestinationElement(event.currentTarget as HTMLElement);
 }
 
@@ -166,7 +176,9 @@ function moveToDestinationElement(target: HTMLElement): void {
     return;
   }
   const action = selectionAction(destination);
-  if (!action) return;
+  if (!action || !selected) return;
+  const movingCards = selected.cards;
+  const sourceRects = heldCardRects();
   const result = applyAction(state, action);
   if (!result.moved) {
     message = result.reason ?? "That move is not allowed.";
@@ -181,6 +193,25 @@ function moveToDestinationElement(target: HTMLElement): void {
   selected = null;
   dragGeneration += 1;
   state = result.state;
+  if (sourceRects.length === movingCards.length) {
+    isManualAnimating = true;
+    movingCards.forEach((card) => pendingDealIds.add(card.id));
+    render();
+    void animateManualMove(movingCards, sourceRects, ++manualGeneration);
+    return;
+  }
+  render();
+  void runAutoPlay();
+}
+
+function heldCardRects(): DOMRect[] {
+  return Array.from(document.querySelectorAll<HTMLElement>("#ghost .ghost-card"), (card) => card.getBoundingClientRect());
+}
+
+async function animateManualMove(cards: Card[], sourceRects: DOMRect[], generation: number): Promise<void> {
+  await Promise.all(cards.map((card, index) => animateDealtCard(card, sourceRects[index], dealGeneration, 600)));
+  if (generation !== manualGeneration) return;
+  isManualAnimating = false;
   render();
   void runAutoPlay();
 }
@@ -193,24 +224,55 @@ function selectionAction(destination: Destination): GameAction | null {
   return { type: "moveFreeCell", destination };
 }
 
+function claimReturningCards(cards: Card[]): void {
+  if (!returningSelection?.cards.some((returningCard) => cards.some((card) => card.id === returningCard.id))) return;
+  returningSelection = null;
+  returnGeneration += 1;
+  document.querySelectorAll(".returning-ghost").forEach((ghost) => ghost.remove());
+}
+
 function cancelSelection(): void {
-  if (!selected || isCancelling) return;
-  isCancelling = true;
+  if (!selected) return;
+  document.querySelectorAll(".returning-ghost").forEach((ghost) => ghost.remove());
+  returningSelection = null;
+  const cancelledSelection = selected;
+  const generation = ++returnGeneration;
+  const ghost = document.querySelector<HTMLElement>("#ghost");
+  const returningCards = ghost ? Array.from(ghost.querySelectorAll<HTMLElement>(".ghost-card")) : [];
+  if (ghost) {
+    ghost.classList.add("returning-ghost");
+    ghost.id = "";
+    document.body.append(ghost);
+    returningCards.forEach((card) => { card.classList.add("returning"); void card.offsetWidth; });
+    returningCards.forEach((card, index) => window.setTimeout(() => {
+      card.style.transform = `translate(${dragOrigin.x}px, ${dragOrigin.y}px)`;
+    }, index * 50));
+  }
+
+  returningSelection = cancelledSelection;
+  selected = null;
+  isCancelling = false;
+  dragGeneration += 1;
   message = "Move cancelled.";
-  const generation = dragGeneration;
-  const cardCount = selected.cards.length;
-  positionGhost(dragOrigin.x + dragGrabOffset.x, dragOrigin.y + dragGrabOffset.y);
-  window.setTimeout(() => {
-    if (generation !== dragGeneration) return;
-    selected = null;
-    isCancelling = false;
-    dragGeneration += 1;
+  render();
+  const finishReturn = () => {
+    if (generation !== returnGeneration) return;
+    if (selected || isManualAnimating || isDealing || isAutoPlaying) { window.setTimeout(finishReturn, 50); return; }
+    returningSelection = null;
     render();
-  }, (cardCount - 1) * 50 + 120);
+    window.requestAnimationFrame(() => {
+      const sourceCardsAreVisible = cancelledSelection.cards.every((card) => {
+        const sourceCard = app.querySelector<HTMLElement>(`[data-card-id="${card.id}"]`);
+        return sourceCard && !sourceCard.classList.contains("returning-hidden") && !sourceCard.classList.contains("dealing-hidden");
+      });
+      if (sourceCardsAreVisible) ghost?.remove();
+    });
+  };
+  window.setTimeout(finishReturn, (returningCards.length - 1) * 50 + 600);
 }
 
 function deal(): void {
-  if (isDealing || isAutoPlaying || state.stock.length === 0) return;
+  if (isDealing || isAutoPlaying || isManualAnimating || state.stock.length === 0) return;
   const source = document.querySelector<HTMLElement>(".stock")?.getBoundingClientRect();
   const cards = state.stock.slice(0, 3);
   const result = applyAction(state, { type: "deal" });
@@ -250,7 +312,7 @@ async function playDealSequence(cards: Card[], source: DOMRect, completeMessage:
 }
 
 async function runAutoPlay(): Promise<void> {
-  if (isDealing || isAutoPlaying || selected) return;
+  if (isDealing || isAutoPlaying || isManualAnimating || selected) return;
   isAutoPlaying = true;
   const generation = ++autoGeneration;
   let action = findAutoPlayAction(state);
@@ -264,7 +326,7 @@ async function runAutoPlay(): Promise<void> {
     pendingDealIds.add(card.id);
     message = `Auto-playing ${cardLabel(card)}...`;
     render();
-    await animateDealtCard(card, source, dealGeneration, 780, true);
+    await animateDealtCard(card, source, dealGeneration, 600);
     if (generation !== autoGeneration || isDealing) return;
     action = findAutoPlayAction(state);
   }
@@ -281,7 +343,7 @@ function cardForAutoAction(action: GameAction): Card | null {
   return null;
 }
 
-function animateDealtCard(card: Card, source: DOMRect, generation: number, duration = 260, shakeOnArrival = false): Promise<void> {
+function animateDealtCard(card: Card, source: DOMRect, generation: number, duration = 260): Promise<void> {
   return new Promise((resolve) => {
     if (generation !== dealGeneration) { resolve(); return; }
     const target = document.querySelector<HTMLElement>(`[data-card-id="${card.id}"]`);
@@ -302,18 +364,10 @@ function animateDealtCard(card: Card, source: DOMRect, generation: number, durat
       flyingCard.style.transform = `translate(${destination.left - source.left}px, ${destination.top - source.top}px)`;
     });
     window.setTimeout(() => {
-      if (generation === dealGeneration) {
-        pendingDealIds.delete(card.id);
-        target.classList.remove("dealing-hidden");
-        if (shakeOnArrival) {
-          target.classList.remove("shake");
-          void target.offsetWidth;
-          target.classList.add("shake");
-        }
-      }
-      flyingCard.remove();
-      if (shakeOnArrival) window.setTimeout(resolve, 280);
-      else resolve();
+      if (generation !== dealGeneration) { flyingCard.remove(); resolve(); return; }
+      pendingDealIds.delete(card.id);
+      target.classList.remove("dealing-hidden");
+      window.requestAnimationFrame(() => { flyingCard.remove(); resolve(); });
     }, duration + 20);
   });
 }
