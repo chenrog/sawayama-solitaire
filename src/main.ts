@@ -154,12 +154,21 @@ function moveToDestinationElement(target: HTMLElement): void {
   const action = selectionAction(destination);
   if (!action) return;
   const result = applyAction(state, action);
-  message = result.moved ? "Moved." : result.reason ?? "That move is not allowed.";
-  if (result.moved) { selected = null; dragGeneration += 1; }
+  if (!result.moved) {
+    message = result.reason ?? "That move is not allowed.";
+    const status = document.querySelector<HTMLElement>("#status");
+    if (status) { status.textContent = message; status.classList.add("error"); }
+    target.classList.remove("shake");
+    void target.offsetWidth;
+    target.classList.add("shake");
+    return;
+  }
+  message = "Moved.";
+  selected = null;
+  dragGeneration += 1;
   state = result.state;
   render();
-  if (result.moved) void runAutoPlay();
-  if (!result.moved) target.classList.add("shake");
+  void runAutoPlay();
 }
 
 function selectionAction(destination: Destination): GameAction | null {
