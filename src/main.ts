@@ -6,6 +6,7 @@ import {
   cardColor,
   cardLabel,
   createGame,
+  findAutoPlayAction,
   rankLabel,
   type Card,
   type Destination,
@@ -31,6 +32,8 @@ let dragGrabOffset = { x: 0, y: 0 };
 let dragOrigin = { x: 0, y: 0 };
 let isCancelling = false;
 let isDealing = false;
+let isAutoPlaying = false;
+let autoGeneration = 0;
 let dealGeneration = 0;
 let pendingDealIds = new Set<string>();
 const app = document.querySelector<HTMLElement>("#app")!;
@@ -44,7 +47,7 @@ function render(): void {
     <section class="top-row">
       ${state.stock.length === 0
         ? `<button class="stock empty" data-destination="freeCell">${state.freeCell && selected?.source !== "freeCell" ? renderCard(state.freeCell, { source: "freeCell" }) : "<span>Free cell</span>"}</button>`
-        : `<button class="stock" data-target="deal" ${isDealing ? "disabled" : ""} aria-label="Deal three cards; ${state.stock.length} remaining"><span class="deck-back" aria-hidden="true"></span><span class="stock-label">${state.stock.length}</span></button>`}
+        : `<button class="stock" data-target="deal" ${isDealing || isAutoPlaying ? "disabled" : ""} aria-label="Deal three cards; ${state.stock.length} remaining"><span class="deck-back" aria-hidden="true"></span><span class="stock-label">${state.stock.length}</span></button>`}
       <div class="waste-slot" aria-label="Dealt card history"><span class="draw-base">Draw pile</span>${renderWasteHistory()}</div>
     </section>
     <section class="board">
@@ -94,7 +97,7 @@ function renderCard(card: Card, source?: CardSource, extraClass = "", inlineStyl
 
 function attachEvents(): void {
   document.querySelector("#new-game")?.addEventListener("click", () => {
-    state = createGame(); selected = null; isCancelling = false; dragGeneration += 1;
+    state = createGame(); selected = null; isCancelling = false; isAutoPlaying = false; autoGeneration += 1; dragGeneration += 1;
     startInitialDeal();
   });
   document.querySelector("[data-target='deal']")?.addEventListener("click", deal);
@@ -105,7 +108,7 @@ function attachEvents(): void {
 function selectSource(event: Event): void {
   event.stopPropagation();
   const element = event.currentTarget as HTMLElement;
-  if (isCancelling || isDealing) return;
+  if (isCancelling || isDealing || isAutoPlaying) return;
   if (selected) {
     const destination = element.closest<HTMLElement>("[data-destination]");
     if (destination) moveToDestinationElement(destination);
@@ -134,7 +137,7 @@ function selectSource(event: Event): void {
 }
 
 function moveToDestination(event: Event): void {
-  if (!selected || isCancelling || isDealing) return;
+  if (!selected || isCancelling || isDealing || isAutoPlaying) return;
   moveToDestinationElement(event.currentTarget as HTMLElement);
 }
 
@@ -155,6 +158,7 @@ function moveToDestinationElement(target: HTMLElement): void {
   if (result.moved) { selected = null; dragGeneration += 1; }
   state = result.state;
   render();
+  if (result.moved) void runAutoPlay();
   if (!result.moved) target.classList.add("shake");
 }
 
@@ -183,7 +187,7 @@ function cancelSelection(): void {
 }
 
 function deal(): void {
-  if (isDealing || state.stock.length === 0) return;
+  if (isDealing || isAutoPlaying || state.stock.length === 0) return;
   const source = document.querySelector<HTMLElement>(".stock")?.getBoundingClientRect();
   const cards = state.stock.slice(0, 3);
   const result = applyAction(state, { type: "deal" });
@@ -219,6 +223,39 @@ async function playDealSequence(cards: Card[], source: DOMRect, completeMessage:
   isDealing = false;
   message = completeMessage;
   render();
+  void runAutoPlay();
+}
+
+async function runAutoPlay(): Promise<void> {
+  if (isDealing || isAutoPlaying || selected) return;
+  isAutoPlaying = true;
+  const generation = ++autoGeneration;
+  let action = findAutoPlayAction(state);
+  while (action) {
+    const card = cardForAutoAction(action);
+    const source = card && document.querySelector<HTMLElement>(`[data-card-id="${card.id}"]`)?.getBoundingClientRect();
+    if (!card || !source) break;
+    const result = applyAction(state, action);
+    if (!result.moved) break;
+    state = result.state;
+    pendingDealIds.add(card.id);
+    message = `Auto-playing ${cardLabel(card)}...`;
+    render();
+    await animateDealtCard(card, source, dealGeneration);
+    if (generation !== autoGeneration || isDealing) return;
+    action = findAutoPlayAction(state);
+  }
+  if (generation !== autoGeneration) return;
+  isAutoPlaying = false;
+  if (message.startsWith("Auto-playing")) message = "Auto-play complete.";
+  render();
+}
+
+function cardForAutoAction(action: GameAction): Card | null {
+  if (action.type === "moveTableau") return state.tableau[action.pile].at(-1) ?? null;
+  if (action.type === "moveWaste") return state.waste.at(-1) ?? null;
+  if (action.type === "moveFreeCell") return state.freeCell;
+  return null;
 }
 
 function animateDealtCard(card: Card, source: DOMRect, generation: number): Promise<void> {

@@ -103,6 +103,21 @@ export function canPlaceOnFoundation(card: Card, foundation: readonly Card[]): b
   return card.rank === (top ? top.rank + 1 : 1) && (!top || card.suit === top.suit);
 }
 
+export function findAutoPlayAction(state: GameState): GameAction | null {
+  for (let pile = 0; pile < state.tableau.length; pile += 1) {
+    const card = state.tableau[pile].at(-1);
+    if (card && isSafeAutoFoundationCard(state, card)) {
+      return { type: "moveTableau", pile, startIndex: state.tableau[pile].length - 1, destination: { type: "foundation", suit: card.suit } };
+    }
+  }
+  const waste = state.waste.at(-1);
+  if (waste && isSafeAutoFoundationCard(state, waste)) return { type: "moveWaste", destination: { type: "foundation", suit: waste.suit } };
+  if (state.freeCell && isSafeAutoFoundationCard(state, state.freeCell)) {
+    return { type: "moveFreeCell", destination: { type: "foundation", suit: state.freeCell.suit } };
+  }
+  return null;
+}
+
 export function applyAction(state: GameState, action: GameAction): MoveResult {
   if (state.won) return failed(state, "The game is already won.");
   if (action.type === "deal") return deal(state);
@@ -138,6 +153,15 @@ function moveSingle(state: GameState, card: Card | undefined, source: "waste" | 
   if (!canMoveToDestination(state, card, destination)) return failed(state, "That destination does not accept this card.");
   const cleared = source === "waste" ? { ...state, waste: state.waste.slice(0, -1) } : { ...state, freeCell: null };
   return succeeded(addToDestination(cleared, [card], destination));
+}
+
+function isSafeAutoFoundationCard(state: GameState, card: Card): boolean {
+  if (!canPlaceOnFoundation(card, state.foundations[card.suit])) return false;
+  if (card.rank === 1) return true;
+  const isRed = cardColor(card) === "red";
+  return SUITS
+    .filter((suit) => (suit === "diamonds" || suit === "hearts") !== isRed)
+    .every((suit) => (state.foundations[suit].at(-1)?.rank ?? 0) >= card.rank - 1);
 }
 
 function canMoveToDestination(state: GameState, card: Card, destination: Destination, sourcePile?: number): boolean {

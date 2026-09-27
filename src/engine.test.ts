@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyAction, cardLabel, createDeck, createGame, isMovableRun, type Card, type GameState } from "./engine";
+import { applyAction, cardLabel, createDeck, createGame, findAutoPlayAction, isMovableRun, type Card, type GameState } from "./engine";
 
 const card = (suit: Card["suit"], rank: Card["rank"]): Card => ({ id: `${suit}-${rank}`, suit, rank });
 const baseState = (): GameState => ({ tableau: Array.from({ length: 7 }, () => []), stock: [], waste: [], foundations: { diamonds: [], clubs: [], spades: [], hearts: [] }, freeCell: null, won: false });
@@ -31,6 +31,20 @@ describe("Sawayama rules engine", () => {
     const result = applyAction(state, { type: "moveTableau", pile: 0, startIndex: 0, destination: { type: "tableau", pile: 1 } });
     expect(result.moved).toBe(true);
     expect(result.state.tableau[1].map((item) => item.rank)).toEqual([4, 3, 2]);
+  });
+
+  it("auto-plays exposed aces and safe cards only", () => {
+    const state = baseState();
+    state.tableau[0] = [card("hearts", 1)];
+    expect(findAutoPlayAction(state)).toMatchObject({ type: "moveTableau", pile: 0, destination: { type: "foundation", suit: "hearts" } });
+
+    state.tableau[0] = [card("clubs", 3)];
+    state.foundations.clubs = [card("clubs", 1), card("clubs", 2)];
+    expect(findAutoPlayAction(state)).toBeNull();
+
+    state.foundations.hearts = [card("hearts", 1), card("hearts", 2)];
+    state.foundations.diamonds = [card("diamonds", 1), card("diamonds", 2)];
+    expect(findAutoPlayAction(state)).toMatchObject({ type: "moveTableau", pile: 0, destination: { type: "foundation", suit: "clubs" } });
   });
 
   it("allows a single card in the free cell only after stock runs out", () => {
