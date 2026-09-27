@@ -101,6 +101,9 @@ function attachEvents(): void {
     startInitialDeal();
   });
   document.querySelector("[data-target='deal']")?.addEventListener("click", deal);
+  document.querySelector(".waste-slot")?.addEventListener("click", () => {
+    if (selected?.source === "waste") cancelSelection();
+  });
   document.querySelectorAll<HTMLElement>("[data-source]").forEach((element) => element.addEventListener("click", selectSource));
   document.querySelectorAll<HTMLElement>("[data-destination]").forEach((element) => element.addEventListener("click", moveToDestination));
 }
