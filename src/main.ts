@@ -253,7 +253,7 @@ async function runAutoPlay(): Promise<void> {
     pendingDealIds.add(card.id);
     message = `Auto-playing ${cardLabel(card)}...`;
     render();
-    await animateDealtCard(card, source, dealGeneration);
+    await animateDealtCard(card, source, dealGeneration, 780, true);
     if (generation !== autoGeneration || isDealing) return;
     action = findAutoPlayAction(state);
   }
@@ -270,7 +270,7 @@ function cardForAutoAction(action: GameAction): Card | null {
   return null;
 }
 
-function animateDealtCard(card: Card, source: DOMRect, generation: number): Promise<void> {
+function animateDealtCard(card: Card, source: DOMRect, generation: number, duration = 260, shakeOnArrival = false): Promise<void> {
   return new Promise((resolve) => {
     if (generation !== dealGeneration) { resolve(); return; }
     const target = document.querySelector<HTMLElement>(`[data-card-id="${card.id}"]`);
@@ -287,17 +287,23 @@ function animateDealtCard(card: Card, source: DOMRect, generation: number): Prom
     layer.append(flyingCard);
 
     window.requestAnimationFrame(() => {
-      flyingCard.style.transition = "transform 260ms cubic-bezier(.2, .8, .2, 1)";
+      flyingCard.style.transition = `transform ${duration}ms cubic-bezier(.2, .8, .2, 1)`;
       flyingCard.style.transform = `translate(${destination.left - source.left}px, ${destination.top - source.top}px)`;
     });
     window.setTimeout(() => {
       if (generation === dealGeneration) {
         pendingDealIds.delete(card.id);
         target.classList.remove("dealing-hidden");
+        if (shakeOnArrival) {
+          target.classList.remove("shake");
+          void target.offsetWidth;
+          target.classList.add("shake");
+        }
       }
       flyingCard.remove();
-      resolve();
-    }, 280);
+      if (shakeOnArrival) window.setTimeout(resolve, 280);
+      else resolve();
+    }, duration + 20);
   });
 }
 
