@@ -157,7 +157,7 @@ function moveSingle(state: GameState, card: Card | undefined, source: "waste" | 
 
 function isSafeAutoFoundationCard(state: GameState, card: Card): boolean {
   if (!canPlaceOnFoundation(card, state.foundations[card.suit])) return false;
-  if (card.rank === 1) return true;
+  if (card.rank <= 2) return true;
   const isRed = cardColor(card) === "red";
   return SUITS
     .filter((suit) => (suit === "diamonds" || suit === "hearts") !== isRed)

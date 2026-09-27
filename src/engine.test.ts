@@ -33,9 +33,13 @@ describe("Sawayama rules engine", () => {
     expect(result.state.tableau[1].map((item) => item.rank)).toEqual([4, 3, 2]);
   });
 
-  it("auto-plays exposed aces and safe cards only", () => {
+  it("auto-plays exposed aces, 2s, and safe higher cards only", () => {
     const state = baseState();
     state.tableau[0] = [card("hearts", 1)];
+    expect(findAutoPlayAction(state)).toMatchObject({ type: "moveTableau", pile: 0, destination: { type: "foundation", suit: "hearts" } });
+
+    state.tableau[0] = [card("hearts", 2)];
+    state.foundations.hearts = [card("hearts", 1)];
     expect(findAutoPlayAction(state)).toMatchObject({ type: "moveTableau", pile: 0, destination: { type: "foundation", suit: "hearts" } });
 
     state.tableau[0] = [card("clubs", 3)];
