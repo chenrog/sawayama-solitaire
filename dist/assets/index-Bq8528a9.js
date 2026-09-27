@@ -4,7 +4,7 @@
       <div class="header-actions"><button id="new-game">New game</button><button id="options" type="button">Options</button></div>
     </header>
     <section class="top-row">
-      ${s.stock.length===0?`<button class="stock empty" data-destination="freeCell">${s.freeCell&&(o==null?void 0:o.source)!=="freeCell"?h(s.freeCell,{source:"freeCell"}):"<span>Free cell</span>"}</button>`:`<button class="stock" data-target="deal" ${b?"disabled":""}><span class="deck-back" aria-hidden="true"></span><span class="stock-label">Deal 3<strong>${s.stock.length}</strong></span></button>`}
+      ${s.stock.length===0?`<button class="stock empty" data-destination="freeCell">${s.freeCell&&(o==null?void 0:o.source)!=="freeCell"?h(s.freeCell,{source:"freeCell"}):"<span>Free cell</span>"}</button>`:`<button class="stock" data-target="deal" ${b?"disabled":""} aria-label="Deal three cards; ${s.stock.length} remaining"><span class="deck-back" aria-hidden="true"></span><span class="stock-label">${s.stock.length}</span></button>`}
       <div class="waste-slot" aria-label="Dealt card history"><span class="draw-base">Draw pile</span>${Q()}</div>
     </section>
     <section class="board">

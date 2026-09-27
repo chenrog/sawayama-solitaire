@@ -44,7 +44,7 @@ function render(): void {
     <section class="top-row">
       ${state.stock.length === 0
         ? `<button class="stock empty" data-destination="freeCell">${state.freeCell && selected?.source !== "freeCell" ? renderCard(state.freeCell, { source: "freeCell" }) : "<span>Free cell</span>"}</button>`
-        : `<button class="stock" data-target="deal" ${isDealing ? "disabled" : ""}><span class="deck-back" aria-hidden="true"></span><span class="stock-label">Deal 3<strong>${state.stock.length}</strong></span></button>`}
+        : `<button class="stock" data-target="deal" ${isDealing ? "disabled" : ""} aria-label="Deal three cards; ${state.stock.length} remaining"><span class="deck-back" aria-hidden="true"></span><span class="stock-label">${state.stock.length}</span></button>`}
       <div class="waste-slot" aria-label="Dealt card history"><span class="draw-base">Draw pile</span>${renderWasteHistory()}</div>
     </section>
     <section class="board">
