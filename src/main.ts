@@ -1,4 +1,5 @@
 import "./style.css";
+import { runDealQueue } from "./deal-queue";
 import {
   SUITS,
   applyAction,
@@ -29,6 +30,9 @@ let dragGeneration = 0;
 let dragGrabOffset = { x: 0, y: 0 };
 let dragOrigin = { x: 0, y: 0 };
 let isCancelling = false;
+let isDealing = false;
+let dealGeneration = 0;
+let pendingDealIds = new Set<string>();
 const app = document.querySelector<HTMLElement>("#app")!;
 
 function render(): void {
@@ -40,7 +44,7 @@ function render(): void {
     <section class="top-row">
       ${state.stock.length === 0
         ? `<button class="stock empty" data-destination="freeCell">${state.freeCell && selected?.source !== "freeCell" ? renderCard(state.freeCell, { source: "freeCell" }) : "<span>Free cell</span>"}</button>`
-        : `<button class="stock" data-target="deal"><span>Deal 3</span><strong>${state.stock.length}</strong></button>`}
+        : `<button class="stock" data-target="deal" ${isDealing ? "disabled" : ""}><span class="deck-back" aria-hidden="true"></span><span class="stock-label">Deal 3<strong>${state.stock.length}</strong></span></button>`}
       <div class="waste-slot" aria-label="Dealt card history">${renderWasteHistory()}</div>
     </section>
     <section class="board">
@@ -49,6 +53,7 @@ function render(): void {
     </section>
     <p id="status" class="${message.startsWith("That") || message.startsWith("Only") ? "error" : ""}">${state.won ? "You won — every suit is complete." : message}</p>
     <div id="ghost" hidden>${selected ? selected.cards.map((card, index) => renderCard(card, undefined, "ghost-card", `top:${index * 34}px; z-index:${index}`)).join("") : ""}</div>
+    <div id="deal-animation-layer" aria-hidden="true"></div>
   `;
   attachEvents();
 }
@@ -84,12 +89,13 @@ function renderCard(card: Card, source?: CardSource, extraClass = "", inlineStyl
     : source?.source ? `data-source="${source.source}"` : "";
   const rank = rankLabel(card);
   const suit = suitSymbol(card.suit);
-  return `<span class="card ${cardColor(card)} ${isSelected ? "selected" : ""} ${extraClass}" ${attrs} ${inlineStyle ? `style="${inlineStyle}"` : ""}><b class="card-corner card-rank-top">${rank}</b><b class="card-corner card-suit-top">${suit}</b><i>${suit}</i><b class="card-corner card-suit-bottom">${suit}</b><b class="card-corner card-rank-bottom">${rank}</b></span>`;
+  return `<span class="card ${cardColor(card)} ${isSelected ? "selected" : ""} ${pendingDealIds.has(card.id) ? "dealing-hidden" : ""} ${extraClass}" data-card-id="${card.id}" ${attrs} ${inlineStyle ? `style="${inlineStyle}"` : ""}><b class="card-corner card-rank-top">${rank}</b><b class="card-corner card-suit-top">${suit}</b><i>${suit}</i><b class="card-corner card-suit-bottom">${suit}</b><b class="card-corner card-rank-bottom">${rank}</b></span>`;
 }
 
 function attachEvents(): void {
   document.querySelector("#new-game")?.addEventListener("click", () => {
-    state = createGame(); selected = null; isCancelling = false; dragGeneration += 1; message = "New game. Select a card or a valid run."; render();
+    state = createGame(); selected = null; isCancelling = false; dragGeneration += 1;
+    startInitialDeal();
   });
   document.querySelector("[data-target='deal']")?.addEventListener("click", deal);
   document.querySelectorAll<HTMLElement>("[data-source]").forEach((element) => element.addEventListener("click", selectSource));
@@ -99,7 +105,7 @@ function attachEvents(): void {
 function selectSource(event: Event): void {
   event.stopPropagation();
   const element = event.currentTarget as HTMLElement;
-  if (isCancelling) return;
+  if (isCancelling || isDealing) return;
   if (selected) {
     const destination = element.closest<HTMLElement>("[data-destination]");
     if (destination) moveToDestinationElement(destination);
@@ -128,7 +134,7 @@ function selectSource(event: Event): void {
 }
 
 function moveToDestination(event: Event): void {
-  if (!selected || isCancelling) return;
+  if (!selected || isCancelling || isDealing) return;
   moveToDestinationElement(event.currentTarget as HTMLElement);
 }
 
@@ -177,13 +183,73 @@ function cancelSelection(): void {
 }
 
 function deal(): void {
+  if (isDealing || state.stock.length === 0) return;
+  const source = document.querySelector<HTMLElement>(".stock")?.getBoundingClientRect();
+  const cards = state.stock.slice(0, 3);
   const result = applyAction(state, { type: "deal" });
+  if (!result.moved || !source) return;
   state = result.state;
   selected = null;
   isCancelling = false;
   dragGeneration += 1;
-  message = result.moved ? "Three cards dealt. Only the top card is playable." : result.reason ?? "Cannot deal.";
+  isDealing = true;
+  pendingDealIds = new Set(cards.map((card) => card.id));
+  message = "Dealing three cards...";
   render();
+  void playDealSequence(cards, source, "Three cards dealt. Only the top card is playable.", ++dealGeneration);
+}
+
+function startInitialDeal(): void {
+  const cards: Card[] = [];
+  for (let round = 0; round < 7; round += 1) {
+    for (let pile = round; pile < 7; pile += 1) cards.push(state.tableau[pile][round]);
+  }
+  isDealing = true;
+  pendingDealIds = new Set(cards.map((card) => card.id));
+  message = "Dealing the opening tableau...";
+  render();
+  const source = document.querySelector<HTMLElement>(".stock")?.getBoundingClientRect();
+  if (!source) return;
+  void playDealSequence(cards, source, "Opening tableau dealt.", ++dealGeneration);
+}
+
+async function playDealSequence(cards: Card[], source: DOMRect, completeMessage: string, generation: number): Promise<void> {
+  await runDealQueue(cards, (card) => animateDealtCard(card, source, generation));
+  if (generation !== dealGeneration) return;
+  isDealing = false;
+  message = completeMessage;
+  render();
+}
+
+function animateDealtCard(card: Card, source: DOMRect, generation: number): Promise<void> {
+  return new Promise((resolve) => {
+    if (generation !== dealGeneration) { resolve(); return; }
+    const target = document.querySelector<HTMLElement>(`[data-card-id="${card.id}"]`);
+    const layer = document.querySelector<HTMLElement>("#deal-animation-layer");
+    if (!target || !layer) { resolve(); return; }
+    const destination = target.getBoundingClientRect();
+    const template = document.createElement("template");
+    template.innerHTML = renderCard(card, undefined, "deal-animation-card");
+    const flyingCard = template.content.firstElementChild as HTMLElement;
+    flyingCard.classList.remove("dealing-hidden");
+    flyingCard.style.left = `${source.left}px`;
+    flyingCard.style.top = `${source.top}px`;
+    flyingCard.style.transform = "translate(0, 0)";
+    layer.append(flyingCard);
+
+    window.requestAnimationFrame(() => {
+      flyingCard.style.transition = "transform 260ms cubic-bezier(.2, .8, .2, 1)";
+      flyingCard.style.transform = `translate(${destination.left - source.left}px, ${destination.top - source.top}px)`;
+    });
+    window.setTimeout(() => {
+      if (generation === dealGeneration) {
+        pendingDealIds.delete(card.id);
+        target.classList.remove("dealing-hidden");
+      }
+      flyingCard.remove();
+      resolve();
+    }, 280);
+  });
 }
 
 function suitSymbol(suit: Suit): string {
@@ -222,4 +288,4 @@ window.addEventListener("pointermove", (event) => {
   if (!isCancelling) positionGhost(event.clientX, event.clientY);
 });
 
-render();
+startInitialDeal();
