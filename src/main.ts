@@ -54,11 +54,12 @@ function render(): void {
 }
 
 function renderWasteHistory(): string {
-  const cards = selected?.source === "waste" ? state.waste.slice(0, -1) : state.waste;
+  const holdingWaste = selected?.source === "waste";
+  const cards = holdingWaste ? state.waste.slice(0, -1) : state.waste;
   if (cards.length === 0) return "<span>Draw pile</span>";
   const width = 90 + (cards.length - 1) * 34;
   return `<div class="waste-history" style="width:${width}px">${cards.map((card, index) =>
-    renderCard(card, index === cards.length - 1 ? { source: "waste" } : undefined, "history-card", `left:${index * 34}px; z-index:${index}`),
+    renderCard(card, !holdingWaste && index === cards.length - 1 ? { source: "waste" } : undefined, "history-card", `left:${index * 34}px; z-index:${index}`),
   ).join("")}</div>`;
 }
 
