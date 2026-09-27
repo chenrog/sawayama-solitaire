@@ -38,14 +38,14 @@ const app = document.querySelector<HTMLElement>("#app")!;
 function render(): void {
   app.innerHTML = `
     <header>
-      <div><p class="eyebrow">SAWAYAMA</p><h1>Solitaire</h1></div>
-      <button id="new-game">New game</button>
+      <div class="title-group"><p class="eyebrow">SAWAYAMA</p><h1>Solitaire</h1></div>
+      <div class="header-actions"><button id="new-game">New game</button><button id="options" type="button">Options</button></div>
     </header>
     <section class="top-row">
       ${state.stock.length === 0
         ? `<button class="stock empty" data-destination="freeCell">${state.freeCell && selected?.source !== "freeCell" ? renderCard(state.freeCell, { source: "freeCell" }) : "<span>Free cell</span>"}</button>`
         : `<button class="stock" data-target="deal" ${isDealing ? "disabled" : ""}><span class="deck-back" aria-hidden="true"></span><span class="stock-label">Deal 3<strong>${state.stock.length}</strong></span></button>`}
-      <div class="waste-slot" aria-label="Dealt card history">${renderWasteHistory()}</div>
+      <div class="waste-slot" aria-label="Dealt card history"><span class="draw-base">Draw pile</span>${renderWasteHistory()}</div>
     </section>
     <section class="board">
       <div class="foundations">${SUITS.map(renderFoundation).join("")}</div>
@@ -61,7 +61,7 @@ function render(): void {
 function renderWasteHistory(): string {
   const holdingWaste = selected?.source === "waste";
   const cards = holdingWaste ? state.waste.slice(0, -1) : state.waste;
-  if (cards.length === 0) return "<span>Draw pile</span>";
+  if (cards.length === 0) return "";
   const width = 90 + (cards.length - 1) * 34;
   return `<div class="waste-history" style="width:${width}px">${cards.map((card, index) =>
     renderCard(card, !holdingWaste && index === cards.length - 1 ? { source: "waste" } : undefined, "history-card", `left:${index * 34}px; z-index:${index}`),
