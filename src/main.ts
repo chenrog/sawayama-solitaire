@@ -7,6 +7,7 @@ import {
   cardLabel,
   createGame,
   findAutoPlayAction,
+  isMovableRun,
   rankLabel,
   type Card,
   type Destination,
@@ -122,7 +123,17 @@ function selectSource(event: Event): void {
   if (source === "tableau") {
     const pile = Number(element.dataset.pile);
     const startIndex = Number(element.dataset.startIndex);
-    selected = { source, pile, startIndex, cards: state.tableau[pile].slice(startIndex) };
+    const cards = state.tableau[pile].slice(startIndex);
+    if (!isMovableRun(cards)) {
+      message = "That stack is not a valid alternating run.";
+      const status = document.querySelector<HTMLElement>("#status");
+      if (status) { status.textContent = message; status.classList.add("error"); }
+      element.classList.remove("shake");
+      void element.offsetWidth;
+      element.classList.add("shake");
+      return;
+    }
+    selected = { source, pile, startIndex, cards };
   } else if (source === "waste" && state.waste.at(-1)) {
     selected = { source, cards: [state.waste.at(-1)!] };
   } else if (source === "freeCell" && state.freeCell) {
