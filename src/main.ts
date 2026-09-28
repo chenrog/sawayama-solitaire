@@ -43,6 +43,12 @@ let dealGeneration = 0;
 let pendingDealIds = new Set<string>();
 const app = document.querySelector<HTMLElement>("#app")!;
 
+function motionLayer(): HTMLElement {
+  let layer = document.querySelector<HTMLElement>("#motion-layer");
+  if (!layer) { layer = document.createElement("div"); layer.id = "motion-layer"; document.body.append(layer); }
+  return layer;
+}
+
 function render(): void {
   app.innerHTML = `
     <header>
@@ -52,7 +58,7 @@ function render(): void {
     <section class="top-row">
       ${state.stock.length === 0
         ? `<button class="stock empty" data-destination="freeCell">${state.freeCell && selected?.source !== "freeCell" ? renderCard(state.freeCell, { source: "freeCell" }) : "<span>Free cell</span>"}</button>`
-        : `<button class="stock" data-target="deal" ${isDealing || isAutoPlaying || isManualAnimating ? "disabled" : ""} aria-label="Deal three cards; ${state.stock.length} remaining"><span class="deck-back" aria-hidden="true"></span><span class="stock-label">${state.stock.length}</span></button>`}
+        : `<button class="stock" data-target="deal" ${isDealing ? "disabled" : ""} aria-label="Deal three cards; ${state.stock.length} remaining"><span class="deck-back" aria-hidden="true"></span><span class="stock-label">${state.stock.length}</span></button>`}
       <div class="waste-slot" aria-label="Dealt card history"><span class="draw-base">Draw pile</span>${renderWasteHistory()}</div>
     </section>
     <section class="board">
@@ -61,7 +67,6 @@ function render(): void {
     </section>
     <p id="status" class="${message.startsWith("That") || message.startsWith("Only") ? "error" : ""}">${state.won ? "You won — every suit is complete." : message}</p>
     <div id="ghost" hidden>${selected ? selected.cards.map((card, index) => renderCard(card, undefined, "ghost-card", `top:${index * 34}px; z-index:${index}`)).join("") : ""}</div>
-    <div id="deal-animation-layer" aria-hidden="true"></div>
   `;
   attachEvents();
 }
@@ -77,8 +82,13 @@ function renderWasteHistory(): string {
 }
 
 function renderFoundation(suit: Suit): string {
-  const top = state.foundations[suit].at(-1);
-  return `<button class="foundation ${suit}" data-destination="foundation" data-suit="${suit}" aria-label="${suit} foundation">${top ? renderCard(top) : `<span>${suitSymbol(suit)}</span>`}</button>`;
+  const cards = state.foundations[suit];
+  const top = cards.at(-1);
+  const underCard = top && pendingDealIds.has(top.id) ? cards.at(-2) : undefined;
+  const contents = top
+    ? `${underCard ? renderCard(underCard) : ""}${renderCard(top)}`
+    : `<span>${suitSymbol(suit)}</span>`;
+  return `<button class="foundation ${suit}" data-destination="foundation" data-suit="${suit}" aria-label="${suit} foundation">${contents}</button>`;
 }
 
 function renderPile(pile: Card[], pileIndex: number): string {
@@ -106,6 +116,7 @@ function attachEvents(): void {
   document.querySelector("#new-game")?.addEventListener("click", () => {
     state = createGame(); selected = null; returningSelection = null; returnGeneration += 1; isCancelling = false; isAutoPlaying = false; isManualAnimating = false; autoGeneration += 1; manualGeneration += 1; dragGeneration += 1;
     document.querySelectorAll(".returning-ghost").forEach((ghost) => ghost.remove());
+    document.querySelector<HTMLElement>("#motion-layer")?.replaceChildren();
     startInitialDeal();
   });
   document.querySelector("[data-target='deal']")?.addEventListener("click", deal);
@@ -120,7 +131,7 @@ function selectSource(event: Event): void {
   if (event instanceof PointerEvent && event.button !== 0) return;
   event.stopPropagation();
   const element = event.currentTarget as HTMLElement;
-  if (isCancelling || isDealing || isAutoPlaying || isManualAnimating) return;
+  if (isCancelling || isDealing) return;
   if (selected) {
     const destination = element.closest<HTMLElement>("[data-destination]");
     if (destination) moveToDestinationElement(destination);
@@ -161,7 +172,7 @@ function selectSource(event: Event): void {
 
 function moveToDestination(event: Event): void {
   if (event instanceof PointerEvent && event.button !== 0) return;
-  if (!selected || isCancelling || isDealing || isAutoPlaying || isManualAnimating) return;
+  if (!selected || isCancelling || isDealing) return;
   moveToDestinationElement(event.currentTarget as HTMLElement);
 }
 
@@ -194,10 +205,10 @@ function moveToDestinationElement(target: HTMLElement): void {
   dragGeneration += 1;
   state = result.state;
   if (sourceRects.length === movingCards.length) {
-    isManualAnimating = true;
     movingCards.forEach((card) => pendingDealIds.add(card.id));
     render();
     void animateManualMove(movingCards, sourceRects, ++manualGeneration);
+    void runAutoPlay();
     return;
   }
   render();
@@ -211,9 +222,6 @@ function heldCardRects(): DOMRect[] {
 async function animateManualMove(cards: Card[], sourceRects: DOMRect[], generation: number): Promise<void> {
   await Promise.all(cards.map((card, index) => animateDealtCard(card, sourceRects[index], dealGeneration, 600)));
   if (generation !== manualGeneration) return;
-  isManualAnimating = false;
-  render();
-  void runAutoPlay();
 }
 
 function selectionAction(destination: Destination): GameAction | null {
@@ -257,7 +265,7 @@ function cancelSelection(): void {
   render();
   const finishReturn = () => {
     if (generation !== returnGeneration) return;
-    if (selected || isManualAnimating || isDealing || isAutoPlaying) { window.setTimeout(finishReturn, 50); return; }
+    if (selected || isDealing) { window.setTimeout(finishReturn, 50); return; }
     returningSelection = null;
     render();
     window.requestAnimationFrame(() => {
@@ -272,7 +280,7 @@ function cancelSelection(): void {
 }
 
 function deal(): void {
-  if (isDealing || isAutoPlaying || isManualAnimating || state.stock.length === 0) return;
+  if (isDealing || state.stock.length === 0) return;
   const source = document.querySelector<HTMLElement>(".stock")?.getBoundingClientRect();
   const cards = state.stock.slice(0, 3);
   const result = applyAction(state, { type: "deal" });
@@ -312,13 +320,13 @@ async function playDealSequence(cards: Card[], source: DOMRect, completeMessage:
 }
 
 async function runAutoPlay(): Promise<void> {
-  if (isDealing || isAutoPlaying || isManualAnimating || selected) return;
+  if (isDealing || isAutoPlaying || selected) return;
   isAutoPlaying = true;
   const generation = ++autoGeneration;
   let action = findAutoPlayAction(state);
   while (action) {
     const card = cardForAutoAction(action);
-    const source = card && document.querySelector<HTMLElement>(`[data-card-id="${card.id}"]`)?.getBoundingClientRect();
+    const source = card && app.querySelector<HTMLElement>(`[data-card-id="${card.id}"]`)?.getBoundingClientRect();
     if (!card || !source) break;
     const result = applyAction(state, action);
     if (!result.moved) break;
@@ -328,12 +336,13 @@ async function runAutoPlay(): Promise<void> {
     render();
     await animateDealtCard(card, source, dealGeneration, 600);
     if (generation !== autoGeneration || isDealing) return;
+    if (selected) { isAutoPlaying = false; return; }
     action = findAutoPlayAction(state);
   }
   if (generation !== autoGeneration) return;
   isAutoPlaying = false;
   if (message.startsWith("Auto-playing")) message = "Auto-play complete.";
-  render();
+  if (!selected) render();
 }
 
 function cardForAutoAction(action: GameAction): Card | null {
@@ -343,13 +352,13 @@ function cardForAutoAction(action: GameAction): Card | null {
   return null;
 }
 
-function animateDealtCard(card: Card, source: DOMRect, generation: number, duration = 260): Promise<void> {
+function animateDealtCard(card: Card, source: DOMRect, generation: number, duration = 260, destinationOverride?: DOMRect): Promise<void> {
   return new Promise((resolve) => {
     if (generation !== dealGeneration) { resolve(); return; }
-    const target = document.querySelector<HTMLElement>(`[data-card-id="${card.id}"]`);
-    const layer = document.querySelector<HTMLElement>("#deal-animation-layer");
-    if (!target || !layer) { resolve(); return; }
-    const destination = target.getBoundingClientRect();
+    const target = app.querySelector<HTMLElement>(`[data-card-id="${card.id}"]`);
+    const layer = motionLayer();
+    const destination = destinationOverride ?? target?.getBoundingClientRect();
+    if (!destination) { resolve(); return; }
     const template = document.createElement("template");
     template.innerHTML = renderCard(card, undefined, "deal-animation-card");
     const flyingCard = template.content.firstElementChild as HTMLElement;
@@ -366,7 +375,7 @@ function animateDealtCard(card: Card, source: DOMRect, generation: number, durat
     window.setTimeout(() => {
       if (generation !== dealGeneration) { flyingCard.remove(); resolve(); return; }
       pendingDealIds.delete(card.id);
-      target.classList.remove("dealing-hidden");
+      app.querySelector<HTMLElement>(`[data-card-id="${card.id}"]`)?.classList.remove("dealing-hidden");
       window.requestAnimationFrame(() => { flyingCard.remove(); resolve(); });
     }, duration + 20);
   });
@@ -380,6 +389,18 @@ window.addEventListener("contextmenu", (event) => {
   if (!selected) return;
   event.preventDefault();
   cancelSelection();
+});
+
+window.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && selected) {
+    event.preventDefault();
+    cancelSelection();
+    return;
+  }
+  if (event.code === "Space" && !event.repeat && !event.metaKey && !event.ctrlKey && !event.altKey) {
+    event.preventDefault();
+    deal();
+  }
 });
 
 function positionGhost(clientX: number, clientY: number, spawnInPlace = false): void {
