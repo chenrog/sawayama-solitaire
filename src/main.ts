@@ -41,6 +41,8 @@ let autoGeneration = 0;
 let manualGeneration = 0;
 let dealGeneration = 0;
 let pendingDealIds = new Set<string>();
+let optionsOpen = false;
+let superFastMode = false;
 const app = document.querySelector<HTMLElement>("#app")!;
 
 function motionLayer(): HTMLElement {
@@ -66,6 +68,7 @@ function render(): void {
       <section class="tableau" aria-label="Tableau">${state.tableau.map(renderPile).join("")}</section>
     </section>
     <p id="status" class="${message.startsWith("That") || message.startsWith("Only") ? "error" : ""}">${state.won ? "You won — every suit is complete." : message}</p>
+    ${optionsOpen ? `<div class="options-scrim" data-options-close><section class="options-dialog" role="dialog" aria-modal="true" aria-labelledby="options-title"><button class="options-close" type="button" data-options-close aria-label="Close options">×</button><div class="options-heading"><p class="eyebrow">SAWAYAMA</p><h2 id="options-title">Solitaire</h2><p>Options</p></div><div class="option-row"><div><h3>Super fast mode</h3><p>Shorter card animations. This setting is not active yet.</p></div><label class="switch" aria-label="Enable super fast mode"><input id="super-fast-mode" type="checkbox" ${superFastMode ? "checked" : ""}><span></span></label></div><p class="options-note">More settings are on the way.</p></section></div>` : ""}
     <div id="ghost" hidden>${selected ? selected.cards.map((card, index) => renderCard(card, undefined, "ghost-card", `top:${index * 34}px; z-index:${index}`)).join("") : ""}</div>
   `;
   attachEvents();
@@ -120,6 +123,13 @@ function attachEvents(): void {
     startInitialDeal();
   });
   document.querySelector("[data-target='deal']")?.addEventListener("click", deal);
+  document.querySelector("#options")?.addEventListener("click", () => { optionsOpen = true; render(); });
+  document.querySelectorAll<HTMLElement>("[data-options-close]").forEach((element) => element.addEventListener("click", (event) => {
+    if (event.target === element || element.classList.contains("options-close")) { optionsOpen = false; render(); }
+  }));
+  document.querySelector<HTMLInputElement>("#super-fast-mode")?.addEventListener("change", (event) => {
+    superFastMode = (event.currentTarget as HTMLInputElement).checked;
+  });
   document.querySelector(".waste-slot")?.addEventListener("pointerdown", (event) => {
     if (event instanceof PointerEvent && event.button === 0 && selected?.source === "waste") cancelSelection();
   });
@@ -401,6 +411,12 @@ window.addEventListener("contextmenu", (event) => {
 });
 
 window.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && optionsOpen) {
+    event.preventDefault();
+    optionsOpen = false;
+    render();
+    return;
+  }
   if (event.key === "Escape" && selected) {
     event.preventDefault();
     cancelSelection();
