@@ -66,6 +66,7 @@ function render(): void {
         : `<button class="stock" data-target="deal" ${isDealing ? "disabled" : ""} aria-label="Deal three cards; ${state.stock.length} remaining"><span class="deck-back" aria-hidden="true"></span><span class="stock-label">${state.stock.length}</span></button>`}
       <div class="waste-slot" aria-label="Dealt card history"><span class="draw-base">Draw pile</span>${renderWasteHistory()}</div>
     </section>
+    ${state.stock.length > 0 ? renderPeekOverlay() : ""}
     <section class="board">
       <div class="foundations">${SUITS.map(renderFoundation).join("")}</div>
       <section class="tableau" aria-label="Tableau">${state.tableau.map(renderPile).join("")}</section>
@@ -85,6 +86,16 @@ function renderWasteHistory(): string {
   return `<div class="waste-history" style="width:${width}px">${cards.map((card, index) =>
     renderCard(card, !holdingWaste && index === cards.length - 1 ? { source: "waste" } : undefined, `history-card ${dimUnplayableCards && (holdingWaste || index !== cards.length - 1) ? "unplayable" : ""}`, `left:${index * 34}px; z-index:${index}`),
   ).join("")}</div>`;
+}
+
+function renderPeekOverlay(): string {
+  const remainingCardIds = new Set(state.stock.map((card) => card.id));
+  const suits: Suit[] = ["spades", "hearts", "clubs", "diamonds"];
+  return `<aside class="peek-overlay" aria-hidden="true"><section class="peek-panel"><div class="peek-heading"><p class="eyebrow">SAWAYAMA</p><h2>Solitaire</h2><p>PEEK</p></div><div class="peek-suits">${suits.map((suit) => `<div class="peek-row"><span class="peek-suit ${suit}">${suitSymbol(suit)}</span><div class="peek-cards">${Array.from({ length: 13 }, (_, index) => {
+    const rank = index + 1;
+    const card: Card = { id: `${suit}-${rank}`, suit, rank: rank as Card["rank"] };
+    return renderCard(card, undefined, `peek-card ${remainingCardIds.has(card.id) ? "" : "peek-drawn"}`, `left:${index * 44}px; z-index:${index}`);
+  }).join("")}</div></div>`).join("")}</div></section></aside>`;
 }
 
 function renderFoundation(suit: Suit): string {
