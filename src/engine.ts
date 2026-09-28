@@ -103,7 +103,7 @@ export function canPlaceOnFoundation(card: Card, foundation: readonly Card[]): b
   return card.rank === (top ? top.rank + 1 : 1) && (!top || card.suit === top.suit);
 }
 
-export function findAutoPlayAction(state: GameState): GameAction | null {
+export function findAutoPlayAction(state: GameState): Exclude<GameAction, { type: "deal" }> | null {
   for (let pile = 0; pile < state.tableau.length; pile += 1) {
     const card = state.tableau[pile].at(-1);
     if (card && isSafeAutoFoundationCard(state, card)) {

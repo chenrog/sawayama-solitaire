@@ -1,5 +1,6 @@
 import "./style.css";
 import { runDealQueue } from "./deal-queue";
+import { undoLatestManualMove, type MoveHistoryEntry } from "./undo-history";
 import {
   SUITS,
   applyAction,
@@ -37,6 +38,7 @@ let isCancelling = false;
 let isDealing = false;
 let isAutoPlaying = false;
 let isManualAnimating = false;
+let isUndoing = false;
 let autoGeneration = 0;
 let manualGeneration = 0;
 let dealGeneration = 0;
@@ -46,6 +48,8 @@ let superFastMode = false;
 let dimUnplayableCards = true;
 let autoDrawThree = true;
 let isInitialDealing = false;
+let moveHistory: MoveHistoryEntry[] = [];
+let undoCount = 0;
 const app = document.querySelector<HTMLElement>("#app")!;
 
 function motionLayer(): HTMLElement {
@@ -58,7 +62,7 @@ function render(): void {
   app.innerHTML = `
     <header>
       <div class="title-group"><p class="eyebrow">SAWAYAMA</p><h1>Solitaire</h1></div>
-      <div class="header-actions"><button id="new-game">New game</button><button id="options" type="button">Options</button></div>
+      <div class="header-actions"><button id="new-game">New game</button><button id="options" type="button">Options</button><button id="undo" type="button" aria-label="Undo previous player move">Undo<span class="undo-label"><span class="undo-count">${undoCount}</span></span></button></div>
     </header>
     <section class="top-row">
       ${state.stock.length === 0
@@ -71,7 +75,7 @@ function render(): void {
       <div class="foundations">${SUITS.map(renderFoundation).join("")}</div>
       <section class="tableau" aria-label="Tableau">${state.tableau.map(renderPile).join("")}</section>
     </section>
-    <p id="status" class="${message.startsWith("That") || message.startsWith("Only") ? "error" : ""}">${state.won ? "You won — every suit is complete." : message}</p>
+    <p id="status" class="${message.startsWith("That") || message.startsWith("Only") || message.startsWith("Undo failed") ? "error" : ""}">${state.won ? "You won — every suit is complete." : message}</p>
     ${optionsOpen ? `<div class="options-scrim" data-options-close><section class="options-dialog" role="dialog" aria-modal="true" aria-labelledby="options-title"><button class="options-close" type="button" data-options-close aria-label="Close options">×</button><div class="options-heading"><p class="eyebrow">SAWAYAMA</p><h2 id="options-title">Solitaire</h2><p>Options</p></div><div class="option-row"><div><h3>Super fast mode</h3><p>Shorter card animations. This setting is not active yet.</p></div><label class="switch" aria-label="Enable super fast mode"><input id="super-fast-mode" type="checkbox" ${superFastMode ? "checked" : ""}><span></span></label></div><div class="option-row"><div><h3>Dim unplayable cards</h3><p>Grey cards that cannot be picked up.</p></div><label class="switch" aria-label="Dim unplayable cards"><input id="dim-unplayable-cards" type="checkbox" ${dimUnplayableCards ? "checked" : ""}><span></span></label></div><div class="option-row"><div><h3>Auto draw 3</h3><p>Deal three cards when the waste is empty.</p></div><label class="switch" aria-label="Automatically draw three cards"><input id="auto-draw-three" type="checkbox" ${autoDrawThree ? "checked" : ""}><span></span></label></div><p class="options-note">More settings are on the way.</p></section></div>` : ""}
     <div id="ghost" hidden>${selected ? selected.cards.map((card, index) => renderCard(card, undefined, "ghost-card", `top:${index * 34}px; z-index:${index}`)).join("") : ""}</div>
   `;
@@ -131,13 +135,14 @@ function renderCard(card: Card, source?: CardSource, extraClass = "", inlineStyl
 
 function attachEvents(): void {
   document.querySelector("#new-game")?.addEventListener("click", () => {
-    state = createGame(); selected = null; returningSelection = null; returnGeneration += 1; isCancelling = false; isAutoPlaying = false; isManualAnimating = false; autoGeneration += 1; manualGeneration += 1; dragGeneration += 1;
+    state = createGame(); selected = null; returningSelection = null; returnGeneration += 1; isCancelling = false; isAutoPlaying = false; isManualAnimating = false; isUndoing = false; autoGeneration += 1; manualGeneration += 1; dragGeneration += 1; moveHistory = []; undoCount = 0;
     document.querySelectorAll(".returning-ghost").forEach((ghost) => ghost.remove());
     document.querySelector<HTMLElement>("#motion-layer")?.replaceChildren();
     startInitialDeal();
   });
   document.querySelector("[data-target='deal']")?.addEventListener("click", deal);
   document.querySelector("#options")?.addEventListener("click", () => { optionsOpen = true; render(); });
+  document.querySelector("#undo")?.addEventListener("click", undoLastManualMove);
   document.querySelectorAll<HTMLElement>("[data-options-close]").forEach((element) => element.addEventListener("click", (event) => {
     if (event.target === element || element.classList.contains("options-close")) { optionsOpen = false; render(); }
   }));
@@ -163,7 +168,7 @@ function selectSource(event: Event): void {
   if (event instanceof PointerEvent && event.button !== 0) return;
   event.stopPropagation();
   const element = event.currentTarget as HTMLElement;
-  if (isCancelling || isDealing) return;
+  if (isCancelling || isDealing || isUndoing) return;
   if (selected) {
     const destination = element.closest<HTMLElement>("[data-destination]");
     if (destination) moveToDestinationElement(destination);
@@ -204,7 +209,7 @@ function selectSource(event: Event): void {
 
 function moveToDestination(event: Event): void {
   if (event instanceof PointerEvent && event.button !== 0) return;
-  if (!selected || isCancelling || isDealing) return;
+  if (!selected || isCancelling || isDealing || isUndoing) return;
   moveToDestinationElement(event.currentTarget as HTMLElement);
 }
 
@@ -235,6 +240,7 @@ function moveToDestinationElement(target: HTMLElement): void {
   message = "Moved.";
   selected = null;
   dragGeneration += 1;
+  moveHistory.push({ action, actor: "manual", previousState: state });
   state = result.state;
   if (sourceRects.length === movingCards.length) {
     movingCards.forEach((card) => pendingDealIds.add(card.id));
@@ -259,7 +265,7 @@ async function animateManualMove(cards: Card[], sourceRects: DOMRect[], generati
   maybeAutoDrawThree();
 }
 
-function selectionAction(destination: Destination): GameAction | null {
+function selectionAction(destination: Destination): Exclude<GameAction, { type: "deal" }> | null {
   if (!selected) return null;
   if (selected.source === "tableau") return { type: "moveTableau", pile: selected.pile, startIndex: selected.startIndex, destination };
   if (selected.source === "waste") return { type: "moveWaste", destination };
@@ -315,12 +321,13 @@ function cancelSelection(): void {
 }
 
 function deal(): void {
-  if (isDealing || state.stock.length === 0) return;
+  if (isDealing || isUndoing || state.stock.length === 0) return;
   const source = document.querySelector<HTMLElement>(".stock")?.getBoundingClientRect();
   const cards = state.stock.slice(0, 3);
   const result = applyAction(state, { type: "deal" });
   if (!result.moved || !source) return;
   state = result.state;
+  moveHistory = [];
   selected = null;
   isCancelling = false;
   dragGeneration += 1;
@@ -357,7 +364,7 @@ async function playDealSequence(cards: Card[], source: DOMRect, completeMessage:
 }
 
 async function runAutoPlay(): Promise<void> {
-  if (isDealing || isAutoPlaying || selected) return;
+  if (isDealing || isUndoing || isAutoPlaying || selected) return;
   isAutoPlaying = true;
   const generation = ++autoGeneration;
   let duration = 600;
@@ -368,6 +375,7 @@ async function runAutoPlay(): Promise<void> {
     if (!card || !source) break;
     const result = applyAction(state, action);
     if (!result.moved) break;
+    moveHistory.push({ action, actor: "auto", previousState: state });
     state = result.state;
     pendingDealIds.add(card.id);
     message = `Auto-playing ${cardLabel(card)}...`;
@@ -387,8 +395,69 @@ async function runAutoPlay(): Promise<void> {
   }
 }
 
+async function undoLastManualMove(): Promise<void> {
+  if (isUndoing) return;
+  if (isDealing) {
+    message = "Undo failed: wait for the card draw to finish.";
+    render();
+    return;
+  }
+  const undoResult = undoLatestManualMove(moveHistory);
+  if (!undoResult) {
+    message = "Undo failed: there is no player move to undo.";
+    render();
+    return;
+  }
+
+  isUndoing = true;
+  selected = null;
+  returningSelection = null;
+  isCancelling = false;
+  isAutoPlaying = false;
+  isManualAnimating = false;
+  autoGeneration += 1;
+  manualGeneration += 1;
+  dragGeneration += 1;
+  const generation = ++dealGeneration;
+  pendingDealIds.clear();
+  document.querySelectorAll(".returning-ghost").forEach((ghost) => ghost.remove());
+  motionLayer().replaceChildren();
+  render();
+
+  for (const entry of undoResult.entries) {
+    const cards = cardsForUndo(entry, state);
+    const sourceRects = cards.map((card) => app.querySelector<HTMLElement>(`[data-card-id="${card.id}"]`)?.getBoundingClientRect());
+    state = entry.previousState;
+    cards.forEach((card) => pendingDealIds.add(card.id));
+    render();
+    let cardIndex = 0;
+    await runDealQueue(cards, (card) => {
+      const source = sourceRects[cardIndex++];
+      if (!source) { pendingDealIds.delete(card.id); return Promise.resolve(); }
+      return animateDealtCard(card, source, generation);
+    });
+  }
+
+  if (generation !== dealGeneration) return;
+  moveHistory = undoResult.history;
+  isUndoing = false;
+  undoCount += 1;
+  message = undoResult.undone > 1 ? `Undid your move and ${undoResult.undone - 1} auto-played card${undoResult.undone === 2 ? "" : "s"}.` : "Undid your move.";
+  render();
+}
+
+function cardsForUndo(entry: MoveHistoryEntry, stateAfterMove: GameState): Card[] {
+  const { action } = entry;
+  if (action.destination.type === "tableau") {
+    const count = action.type === "moveTableau" ? entry.previousState.tableau[action.pile].length - action.startIndex : 1;
+    return stateAfterMove.tableau[action.destination.pile].slice(-count);
+  }
+  if (action.destination.type === "foundation") return stateAfterMove.foundations[action.destination.suit].slice(-1);
+  return stateAfterMove.freeCell ? [stateAfterMove.freeCell] : [];
+}
+
 function maybeAutoDrawThree(): boolean {
-  if (!autoDrawThree || isDealing || isManualAnimating || isAutoPlaying || selected || state.stock.length === 0 || state.waste.length > 0) return false;
+  if (!autoDrawThree || isDealing || isUndoing || isManualAnimating || isAutoPlaying || selected || state.stock.length === 0 || state.waste.length > 0) return false;
   deal();
   return true;
 }
@@ -447,6 +516,11 @@ window.addEventListener("contextmenu", (event) => {
 });
 
 window.addEventListener("keydown", (event) => {
+  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z" && !event.repeat && !optionsOpen) {
+    event.preventDefault();
+    undoLastManualMove();
+    return;
+  }
   if (event.key === "Shift" && state.stock.length > 0 && !optionsOpen) document.body.classList.add("peek-key-held");
   if (event.key === "Escape" && optionsOpen) {
     event.preventDefault();
