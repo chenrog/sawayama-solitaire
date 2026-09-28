@@ -323,6 +323,7 @@ async function runAutoPlay(): Promise<void> {
   if (isDealing || isAutoPlaying || selected) return;
   isAutoPlaying = true;
   const generation = ++autoGeneration;
+  let duration = 600;
   let action = findAutoPlayAction(state);
   while (action) {
     const card = cardForAutoAction(action);
@@ -334,8 +335,9 @@ async function runAutoPlay(): Promise<void> {
     pendingDealIds.add(card.id);
     message = `Auto-playing ${cardLabel(card)}...`;
     render();
-    await animateDealtCard(card, source, dealGeneration, 600);
+    await animateDealtCard(card, source, dealGeneration, duration);
     if (generation !== autoGeneration || isDealing) return;
+    duration = Math.max(150, duration - 50);
     if (selected) { isAutoPlaying = false; return; }
     action = findAutoPlayAction(state);
   }
