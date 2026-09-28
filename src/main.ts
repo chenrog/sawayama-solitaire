@@ -94,7 +94,7 @@ function renderPeekOverlay(): string {
   return `<aside class="peek-overlay" aria-hidden="true"><section class="peek-panel"><div class="peek-heading"><p class="eyebrow">SAWAYAMA</p><h2>Solitaire</h2><p>PEEK</p></div><div class="peek-suits">${suits.map((suit) => `<div class="peek-row"><span class="peek-suit ${suit}">${suitSymbol(suit)}</span><div class="peek-cards">${Array.from({ length: 13 }, (_, index) => {
     const rank = index + 1;
     const card: Card = { id: `${suit}-${rank}`, suit, rank: rank as Card["rank"] };
-    return renderCard(card, undefined, `peek-card ${remainingCardIds.has(card.id) ? "" : "peek-drawn"}`, `left:${index * 44}px; z-index:${index}`);
+    return renderCard(card, undefined, `peek-card ${remainingCardIds.has(card.id) ? "" : "peek-drawn"}`, `left:${index * 44}px; z-index:${index}`, false, true);
   }).join("")}</div></div>`).join("")}</div></section></aside>`;
 }
 
@@ -117,7 +117,7 @@ function renderPile(pile: Card[], pileIndex: number): string {
   return `<button class="tableau-pile" data-destination="tableau" data-pile="${pileIndex}" aria-label="Tableau pile ${pileIndex + 1}"><span class="tableau-open">Open</span>${cards}</button>`;
 }
 
-function renderCard(card: Card, source?: CardSource, extraClass = "", inlineStyle = ""): string {
+function renderCard(card: Card, source?: CardSource, extraClass = "", inlineStyle = "", includeCardId = true, displayOnly = false): string {
   const isSelected = selected && selected.source === source?.source &&
     (source?.source !== "tableau" || (selected.source === "tableau" && selected.pile === source.pile && selected.startIndex === source.startIndex));
   const isReturning = Boolean(source) && Boolean(returningSelection?.cards.some((returningCard) => returningCard.id === card.id));
@@ -126,7 +126,7 @@ function renderCard(card: Card, source?: CardSource, extraClass = "", inlineStyl
     : source?.source ? `data-source="${source.source}"` : "";
   const rank = rankLabel(card);
   const suit = suitSymbol(card.suit);
-  return `<span class="card ${cardColor(card)} ${isSelected ? "selected" : ""} ${isReturning ? "returning-hidden" : ""} ${pendingDealIds.has(card.id) ? "dealing-hidden" : ""} ${extraClass}" data-card-id="${card.id}" ${attrs} ${inlineStyle ? `style="${inlineStyle}"` : ""}><b class="card-corner card-rank-top">${rank}</b><b class="card-corner card-suit-top">${suit}</b><i>${suit}</i><b class="card-corner card-suit-bottom">${suit}</b><b class="card-corner card-rank-bottom">${rank}</b></span>`;
+  return `<span class="card ${cardColor(card)} ${isSelected ? "selected" : ""} ${isReturning ? "returning-hidden" : ""} ${!displayOnly && pendingDealIds.has(card.id) ? "dealing-hidden" : ""} ${extraClass}" ${includeCardId ? `data-card-id="${card.id}"` : ""} ${attrs} ${inlineStyle ? `style="${inlineStyle}"` : ""}><b class="card-corner card-rank-top">${rank}</b><b class="card-corner card-suit-top">${suit}</b><i>${suit}</i><b class="card-corner card-suit-bottom">${suit}</b><b class="card-corner card-rank-bottom">${rank}</b></span>`;
 }
 
 function attachEvents(): void {
@@ -447,6 +447,7 @@ window.addEventListener("contextmenu", (event) => {
 });
 
 window.addEventListener("keydown", (event) => {
+  if (event.key === "Shift" && state.stock.length > 0 && !optionsOpen) document.body.classList.add("peek-key-held");
   if (event.key === "Escape" && optionsOpen) {
     event.preventDefault();
     optionsOpen = false;
@@ -463,6 +464,11 @@ window.addEventListener("keydown", (event) => {
     deal();
   }
 });
+
+window.addEventListener("keyup", (event) => {
+  if (event.key === "Shift") document.body.classList.remove("peek-key-held");
+});
+window.addEventListener("blur", () => document.body.classList.remove("peek-key-held"));
 
 function positionGhost(clientX: number, clientY: number, spawnInPlace = false): void {
   if (!selected) return;
