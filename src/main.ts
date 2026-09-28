@@ -34,6 +34,7 @@ let message = "Select a card or a valid run.";
 let dragGeneration = 0;
 let dragGrabOffset = { x: 0, y: 0 };
 let dragOrigin = { x: 0, y: 0 };
+let activeDrag: { pointerId: number; startX: number; startY: number; moved: boolean } | null = null;
 let isCancelling = false;
 let isDealing = false;
 let isAutoPlaying = false;
@@ -66,7 +67,7 @@ function render(): void {
     </header>
     <section class="top-row">
       ${state.stock.length === 0
-        ? `<button class="stock empty" data-destination="freeCell">${state.freeCell && selected?.source !== "freeCell" ? renderCard(state.freeCell, { source: "freeCell" }) : "<span>Free cell</span>"}</button>`
+        ? `<button class="stock empty" data-destination="freeCell">${state.freeCell && selected?.source !== "freeCell" ? renderCard(state.freeCell, { source: "freeCell" }) : "<span>Space</span>"}</button>`
         : `<button class="stock" data-target="deal" ${isDealing ? "disabled" : ""} aria-label="Deal three cards; ${state.stock.length} remaining"><span class="deck-back" aria-hidden="true"></span><span class="stock-label"><span class="stock-count">${state.stock.length}</span></span></button>`}
       <div class="waste-slot" aria-label="Dealt card history"><span class="draw-base">Draw pile</span>${renderWasteHistory()}</div>
     </section>
@@ -135,7 +136,7 @@ function renderCard(card: Card, source?: CardSource, extraClass = "", inlineStyl
 
 function attachEvents(): void {
   document.querySelector("#new-game")?.addEventListener("click", () => {
-    state = createGame(); selected = null; returningSelection = null; returnGeneration += 1; isCancelling = false; isAutoPlaying = false; isManualAnimating = false; isUndoing = false; autoGeneration += 1; manualGeneration += 1; dragGeneration += 1; moveHistory = []; undoCount = 0;
+    state = createGame(); selected = null; activeDrag = null; returningSelection = null; returnGeneration += 1; isCancelling = false; isAutoPlaying = false; isManualAnimating = false; isUndoing = false; autoGeneration += 1; manualGeneration += 1; dragGeneration += 1; moveHistory = []; undoCount = 0;
     document.querySelectorAll(".returning-ghost").forEach((ghost) => ghost.remove());
     document.querySelector<HTMLElement>("#motion-layer")?.replaceChildren();
     startInitialDeal();
@@ -201,6 +202,8 @@ function selectSource(event: Event): void {
   const bounds = element.getBoundingClientRect();
   dragGrabOffset = { x: pointer.clientX - bounds.left, y: pointer.clientY - bounds.top };
   dragOrigin = { x: bounds.left, y: bounds.top };
+  const pointerEvent = event as PointerEvent;
+  activeDrag = { pointerId: pointerEvent.pointerId, startX: pointerEvent.clientX, startY: pointerEvent.clientY, moved: false };
   dragGeneration += 1;
   message = "Selected. Click a destination, or right-click to cancel.";
   render();
@@ -213,7 +216,7 @@ function moveToDestination(event: Event): void {
   moveToDestinationElement(event.currentTarget as HTMLElement);
 }
 
-function moveToDestinationElement(target: HTMLElement): void {
+function moveToDestinationElement(target: HTMLElement): boolean {
   const destination = target.dataset.destination === "tableau"
     ? { type: "tableau", pile: Number(target.dataset.pile) } as Destination
     : target.dataset.destination === "foundation"
@@ -221,10 +224,10 @@ function moveToDestinationElement(target: HTMLElement): void {
       : { type: "freeCell" } as Destination;
   if (selected?.source === "tableau" && destination.type === "tableau" && destination.pile === selected.pile) {
     cancelSelection();
-    return;
+    return true;
   }
   const action = selectionAction(destination);
-  if (!action || !selected) return;
+  if (!action || !selected) return false;
   const movingCards = selected.cards;
   const sourceRects = heldCardRects();
   const result = applyAction(state, action);
@@ -235,9 +238,10 @@ function moveToDestinationElement(target: HTMLElement): void {
     target.classList.remove("shake");
     void target.offsetWidth;
     target.classList.add("shake");
-    return;
+    return false;
   }
   message = "Moved.";
+  activeDrag = null;
   selected = null;
   dragGeneration += 1;
   moveHistory.push({ action, actor: "manual", previousState: state });
@@ -247,10 +251,11 @@ function moveToDestinationElement(target: HTMLElement): void {
     render();
     void animateManualMove(movingCards, sourceRects, ++manualGeneration);
     void runAutoPlay();
-    return;
+    return true;
   }
   render();
   void runAutoPlay();
+  return true;
 }
 
 function heldCardRects(): DOMRect[] {
@@ -299,6 +304,7 @@ function cancelSelection(): void {
   }
 
   returningSelection = cancelledSelection;
+  activeDrag = null;
   selected = null;
   isCancelling = false;
   dragGeneration += 1;
@@ -410,6 +416,7 @@ async function undoLastManualMove(): Promise<void> {
   }
 
   isUndoing = true;
+  activeDrag = null;
   selected = null;
   returningSelection = null;
   isCancelling = false;
@@ -567,7 +574,18 @@ function positionGhost(clientX: number, clientY: number, spawnInPlace = false): 
 }
 
 window.addEventListener("pointermove", (event) => {
-  if (!isCancelling) positionGhost(event.clientX, event.clientY);
+  if (isCancelling || !selected) return;
+  if (activeDrag?.pointerId === event.pointerId && Math.hypot(event.clientX - activeDrag.startX, event.clientY - activeDrag.startY) > 6) activeDrag.moved = true;
+  positionGhost(event.clientX, event.clientY);
+});
+
+window.addEventListener("pointerup", (event) => {
+  if (!activeDrag || activeDrag.pointerId !== event.pointerId) return;
+  const dragged = activeDrag.moved;
+  activeDrag = null;
+  if (!dragged || !selected || isCancelling || isDealing || isUndoing) return;
+  const destination = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>("[data-destination]");
+  if (!destination || !moveToDestinationElement(destination)) cancelSelection();
 });
 
 startInitialDeal();

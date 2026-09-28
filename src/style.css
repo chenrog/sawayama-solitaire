@@ -2,7 +2,7 @@
 
 :root { font-family: "DM Mono", monospace; color: #f7f0dc; background: #103c35; }
 * { box-sizing: border-box; }
-body { margin: 0; min-width: 320px; min-height: 100vh; background: radial-gradient(circle at 50% -20%, #287260, #103c35 55%); }
+body { margin: 0; min-width: 320px; min-height: 100vh; background: radial-gradient(circle at 50% -20%, #287260, #103c35 55%); user-select: none; }
 button { font: inherit; cursor: pointer; }
 #app { box-sizing: content-box; width: fit-content; min-width: 1038px; max-width: none; margin: auto; padding: 24px 0; }
 header, .top-row { display: flex; align-items: center; gap: 16px; }
