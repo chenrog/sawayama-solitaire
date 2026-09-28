@@ -43,6 +43,7 @@ let dealGeneration = 0;
 let pendingDealIds = new Set<string>();
 let optionsOpen = false;
 let superFastMode = false;
+let dimUnplayableCards = true;
 const app = document.querySelector<HTMLElement>("#app")!;
 
 function motionLayer(): HTMLElement {
@@ -68,7 +69,7 @@ function render(): void {
       <section class="tableau" aria-label="Tableau">${state.tableau.map(renderPile).join("")}</section>
     </section>
     <p id="status" class="${message.startsWith("That") || message.startsWith("Only") ? "error" : ""}">${state.won ? "You won — every suit is complete." : message}</p>
-    ${optionsOpen ? `<div class="options-scrim" data-options-close><section class="options-dialog" role="dialog" aria-modal="true" aria-labelledby="options-title"><button class="options-close" type="button" data-options-close aria-label="Close options">×</button><div class="options-heading"><p class="eyebrow">SAWAYAMA</p><h2 id="options-title">Solitaire</h2><p>Options</p></div><div class="option-row"><div><h3>Super fast mode</h3><p>Shorter card animations. This setting is not active yet.</p></div><label class="switch" aria-label="Enable super fast mode"><input id="super-fast-mode" type="checkbox" ${superFastMode ? "checked" : ""}><span></span></label></div><p class="options-note">More settings are on the way.</p></section></div>` : ""}
+    ${optionsOpen ? `<div class="options-scrim" data-options-close><section class="options-dialog" role="dialog" aria-modal="true" aria-labelledby="options-title"><button class="options-close" type="button" data-options-close aria-label="Close options">×</button><div class="options-heading"><p class="eyebrow">SAWAYAMA</p><h2 id="options-title">Solitaire</h2><p>Options</p></div><div class="option-row"><div><h3>Super fast mode</h3><p>Shorter card animations. This setting is not active yet.</p></div><label class="switch" aria-label="Enable super fast mode"><input id="super-fast-mode" type="checkbox" ${superFastMode ? "checked" : ""}><span></span></label></div><div class="option-row"><div><h3>Dim unplayable cards</h3><p>Grey cards that cannot be picked up.</p></div><label class="switch" aria-label="Dim unplayable cards"><input id="dim-unplayable-cards" type="checkbox" ${dimUnplayableCards ? "checked" : ""}><span></span></label></div><p class="options-note">More settings are on the way.</p></section></div>` : ""}
     <div id="ghost" hidden>${selected ? selected.cards.map((card, index) => renderCard(card, undefined, "ghost-card", `top:${index * 34}px; z-index:${index}`)).join("") : ""}</div>
   `;
   attachEvents();
@@ -80,7 +81,7 @@ function renderWasteHistory(): string {
   if (cards.length === 0) return "";
   const width = 90 + (cards.length - 1) * 34;
   return `<div class="waste-history" style="width:${width}px">${cards.map((card, index) =>
-    renderCard(card, !holdingWaste && index === cards.length - 1 ? { source: "waste" } : undefined, "history-card", `left:${index * 34}px; z-index:${index}`),
+    renderCard(card, !holdingWaste && index === cards.length - 1 ? { source: "waste" } : undefined, `history-card ${dimUnplayableCards && (holdingWaste || index !== cards.length - 1) ? "unplayable" : ""}`, `left:${index * 34}px; z-index:${index}`),
   ).join("")}</div>`;
 }
 
@@ -98,7 +99,7 @@ function renderPile(pile: Card[], pileIndex: number): string {
   const heldStart = selected?.source === "tableau" && selected.pile === pileIndex ? selected.startIndex : null;
   const visiblePile = heldStart === null ? pile : pile.slice(0, heldStart);
   const cards = visiblePile.map((card, cardIndex) =>
-    renderCard(card, { source: "tableau", pile: pileIndex, startIndex: cardIndex }, "", `top:${cardIndex * 34}px; z-index:${cardIndex + 1}`),
+    renderCard(card, { source: "tableau", pile: pileIndex, startIndex: cardIndex }, dimUnplayableCards && !isMovableRun(pile.slice(cardIndex)) ? "unplayable" : "", `top:${cardIndex * 34}px; z-index:${cardIndex + 1}`),
   ).join("");
   return `<button class="tableau-pile" data-destination="tableau" data-pile="${pileIndex}" aria-label="Tableau pile ${pileIndex + 1}"><span class="tableau-open">Open</span>${cards}</button>`;
 }
@@ -129,6 +130,10 @@ function attachEvents(): void {
   }));
   document.querySelector<HTMLInputElement>("#super-fast-mode")?.addEventListener("change", (event) => {
     superFastMode = (event.currentTarget as HTMLInputElement).checked;
+  });
+  document.querySelector<HTMLInputElement>("#dim-unplayable-cards")?.addEventListener("change", (event) => {
+    dimUnplayableCards = (event.currentTarget as HTMLInputElement).checked;
+    render();
   });
   document.querySelector(".waste-slot")?.addEventListener("pointerdown", (event) => {
     if (event instanceof PointerEvent && event.button === 0 && selected?.source === "waste") cancelSelection();
