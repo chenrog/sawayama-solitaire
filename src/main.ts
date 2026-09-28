@@ -45,6 +45,7 @@ let optionsOpen = false;
 let superFastMode = false;
 let dimUnplayableCards = true;
 let autoDrawThree = true;
+let isInitialDealing = false;
 const app = document.querySelector<HTMLElement>("#app")!;
 
 function motionLayer(): HTMLElement {
@@ -100,7 +101,7 @@ function renderPile(pile: Card[], pileIndex: number): string {
   const heldStart = selected?.source === "tableau" && selected.pile === pileIndex ? selected.startIndex : null;
   const visiblePile = heldStart === null ? pile : pile.slice(0, heldStart);
   const cards = visiblePile.map((card, cardIndex) =>
-    renderCard(card, { source: "tableau", pile: pileIndex, startIndex: cardIndex }, dimUnplayableCards && !isMovableRun(pile.slice(cardIndex)) ? "unplayable" : "", `top:${cardIndex * 34}px; z-index:${cardIndex + 1}`),
+    renderCard(card, { source: "tableau", pile: pileIndex, startIndex: cardIndex }, dimUnplayableCards && !isInitialDealing && !isMovableRun(pile.slice(cardIndex)) ? "unplayable" : "", `top:${cardIndex * 34}px; z-index:${cardIndex + 1}`),
   ).join("");
   return `<button class="tableau-pile" data-destination="tableau" data-pile="${pileIndex}" aria-label="Tableau pile ${pileIndex + 1}"><span class="tableau-open">Open</span>${cards}</button>`;
 }
@@ -320,7 +321,8 @@ function deal(): void {
 }
 
 function startInitialDeal(): void {
-  const cards: Card[] = [];
+  isInitialDealing = true;
+  const cards: Card[] = []; 
   for (let round = 0; round < 7; round += 1) {
     for (let pile = round; pile < 7; pile += 1) cards.push(state.tableau[pile][round]);
   }
@@ -337,6 +339,7 @@ async function playDealSequence(cards: Card[], source: DOMRect, completeMessage:
   await runDealQueue(cards, (card) => animateDealtCard(card, source, generation));
   if (generation !== dealGeneration) return;
   isDealing = false;
+  isInitialDealing = false;
   message = completeMessage;
   render();
   if (!maybeAutoDrawThree()) void runAutoPlay();
