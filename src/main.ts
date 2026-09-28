@@ -180,7 +180,7 @@ function moveToDestinationElement(target: HTMLElement): void {
   const destination = target.dataset.destination === "tableau"
     ? { type: "tableau", pile: Number(target.dataset.pile) } as Destination
     : target.dataset.destination === "foundation"
-      ? { type: "foundation", suit: target.dataset.suit as Suit } as Destination
+      ? { type: "foundation", suit: selected?.cards[0]?.suit ?? target.dataset.suit as Suit } as Destination
       : { type: "freeCell" } as Destination;
   if (selected?.source === "tableau" && destination.type === "tableau" && destination.pile === selected.pile) {
     cancelSelection();
@@ -377,7 +377,14 @@ function animateDealtCard(card: Card, source: DOMRect, generation: number, durat
     window.setTimeout(() => {
       if (generation !== dealGeneration) { flyingCard.remove(); resolve(); return; }
       pendingDealIds.delete(card.id);
-      app.querySelector<HTMLElement>(`[data-card-id="${card.id}"]`)?.classList.remove("dealing-hidden");
+      const landedCard = app.querySelector<HTMLElement>(`[data-card-id="${card.id}"]`);
+      landedCard?.classList.remove("dealing-hidden");
+      if (landedCard?.closest(".foundation")) {
+        landedCard.classList.remove("foundation-pop");
+        void landedCard.offsetWidth;
+        landedCard.classList.add("foundation-pop");
+        window.setTimeout(() => landedCard.classList.remove("foundation-pop"), 140);
+      }
       window.requestAnimationFrame(() => { flyingCard.remove(); resolve(); });
     }, duration + 20);
   });
