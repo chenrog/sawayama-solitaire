@@ -44,6 +44,7 @@ let pendingDealIds = new Set<string>();
 let optionsOpen = false;
 let superFastMode = false;
 let dimUnplayableCards = true;
+let autoDrawThree = true;
 const app = document.querySelector<HTMLElement>("#app")!;
 
 function motionLayer(): HTMLElement {
@@ -69,7 +70,7 @@ function render(): void {
       <section class="tableau" aria-label="Tableau">${state.tableau.map(renderPile).join("")}</section>
     </section>
     <p id="status" class="${message.startsWith("That") || message.startsWith("Only") ? "error" : ""}">${state.won ? "You won — every suit is complete." : message}</p>
-    ${optionsOpen ? `<div class="options-scrim" data-options-close><section class="options-dialog" role="dialog" aria-modal="true" aria-labelledby="options-title"><button class="options-close" type="button" data-options-close aria-label="Close options">×</button><div class="options-heading"><p class="eyebrow">SAWAYAMA</p><h2 id="options-title">Solitaire</h2><p>Options</p></div><div class="option-row"><div><h3>Super fast mode</h3><p>Shorter card animations. This setting is not active yet.</p></div><label class="switch" aria-label="Enable super fast mode"><input id="super-fast-mode" type="checkbox" ${superFastMode ? "checked" : ""}><span></span></label></div><div class="option-row"><div><h3>Dim unplayable cards</h3><p>Grey cards that cannot be picked up.</p></div><label class="switch" aria-label="Dim unplayable cards"><input id="dim-unplayable-cards" type="checkbox" ${dimUnplayableCards ? "checked" : ""}><span></span></label></div><p class="options-note">More settings are on the way.</p></section></div>` : ""}
+    ${optionsOpen ? `<div class="options-scrim" data-options-close><section class="options-dialog" role="dialog" aria-modal="true" aria-labelledby="options-title"><button class="options-close" type="button" data-options-close aria-label="Close options">×</button><div class="options-heading"><p class="eyebrow">SAWAYAMA</p><h2 id="options-title">Solitaire</h2><p>Options</p></div><div class="option-row"><div><h3>Super fast mode</h3><p>Shorter card animations. This setting is not active yet.</p></div><label class="switch" aria-label="Enable super fast mode"><input id="super-fast-mode" type="checkbox" ${superFastMode ? "checked" : ""}><span></span></label></div><div class="option-row"><div><h3>Dim unplayable cards</h3><p>Grey cards that cannot be picked up.</p></div><label class="switch" aria-label="Dim unplayable cards"><input id="dim-unplayable-cards" type="checkbox" ${dimUnplayableCards ? "checked" : ""}><span></span></label></div><div class="option-row"><div><h3>Auto draw 3</h3><p>Deal three cards when the waste is empty.</p></div><label class="switch" aria-label="Automatically draw three cards"><input id="auto-draw-three" type="checkbox" ${autoDrawThree ? "checked" : ""}><span></span></label></div><p class="options-note">More settings are on the way.</p></section></div>` : ""}
     <div id="ghost" hidden>${selected ? selected.cards.map((card, index) => renderCard(card, undefined, "ghost-card", `top:${index * 34}px; z-index:${index}`)).join("") : ""}</div>
   `;
   attachEvents();
@@ -134,6 +135,10 @@ function attachEvents(): void {
   document.querySelector<HTMLInputElement>("#dim-unplayable-cards")?.addEventListener("change", (event) => {
     dimUnplayableCards = (event.currentTarget as HTMLInputElement).checked;
     render();
+  });
+  document.querySelector<HTMLInputElement>("#auto-draw-three")?.addEventListener("change", (event) => {
+    autoDrawThree = (event.currentTarget as HTMLInputElement).checked;
+    if (autoDrawThree) maybeAutoDrawThree();
   });
   document.querySelector(".waste-slot")?.addEventListener("pointerdown", (event) => {
     if (event instanceof PointerEvent && event.button === 0 && selected?.source === "waste") cancelSelection();
@@ -235,8 +240,11 @@ function heldCardRects(): DOMRect[] {
 }
 
 async function animateManualMove(cards: Card[], sourceRects: DOMRect[], generation: number): Promise<void> {
+  isManualAnimating = true;
   await Promise.all(cards.map((card, index) => animateDealtCard(card, sourceRects[index], dealGeneration, 600)));
   if (generation !== manualGeneration) return;
+  isManualAnimating = false;
+  maybeAutoDrawThree();
 }
 
 function selectionAction(destination: Destination): GameAction | null {
@@ -331,7 +339,7 @@ async function playDealSequence(cards: Card[], source: DOMRect, completeMessage:
   isDealing = false;
   message = completeMessage;
   render();
-  void runAutoPlay();
+  if (!maybeAutoDrawThree()) void runAutoPlay();
 }
 
 async function runAutoPlay(): Promise<void> {
@@ -359,7 +367,16 @@ async function runAutoPlay(): Promise<void> {
   if (generation !== autoGeneration) return;
   isAutoPlaying = false;
   if (message.startsWith("Auto-playing")) message = "Auto-play complete.";
-  if (!selected) render();
+  if (!selected) {
+    render();
+    maybeAutoDrawThree();
+  }
+}
+
+function maybeAutoDrawThree(): boolean {
+  if (!autoDrawThree || isDealing || isManualAnimating || isAutoPlaying || selected || state.stock.length === 0 || state.waste.length > 0) return false;
+  deal();
+  return true;
 }
 
 function cardForAutoAction(action: GameAction): Card | null {
