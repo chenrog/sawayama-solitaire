@@ -558,7 +558,12 @@ function positionGhost(clientX: number, clientY: number, spawnInPlace = false): 
     card.style.transform = `translate(${clientX - dragGrabOffset.x}px, ${clientY - dragGrabOffset.y}px)`;
     if (spawnInPlace) window.requestAnimationFrame(() => { card.style.transition = ""; });
   };
-  for (let index = 0; index < cardCount; index += 1) moveGhostCard(index);
+  if (spawnInPlace) {
+    for (let index = 0; index < cardCount; index += 1) moveGhostCard(index);
+    return;
+  }
+  moveGhostCard(0);
+  for (let index = 1; index < cardCount; index += 1) window.setTimeout(() => moveGhostCard(index), index * 50);
 }
 
 window.addEventListener("pointermove", (event) => {
