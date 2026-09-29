@@ -97,7 +97,7 @@ function renderWasteHistory(): string {
 function renderPeekOverlay(): string {
   const remainingCardIds = new Set(state.stock.map((card) => card.id));
   const suits: Suit[] = ["spades", "hearts", "clubs", "diamonds"];
-  return `<aside class="peek-overlay" aria-hidden="true"><section class="peek-panel"><div class="peek-heading"><p class="eyebrow">SAWAYAMA</p><h2>Solitaire</h2><p>PEEK</p></div><div class="peek-suits">${suits.map((suit) => `<div class="peek-row"><span class="peek-suit ${suit}">${suitSymbol(suit)}</span><div class="peek-cards">${Array.from({ length: 13 }, (_, index) => {
+  return `<aside class="peek-overlay" aria-hidden="true"><section class="peek-panel"><div class="peek-heading"><div class="peek-title"><p class="eyebrow">SAWAYAMA</p><h2>Solitaire</h2><p>PEEK</p></div><strong class="peek-remaining">${state.stock.length}</strong></div><div class="peek-suits">${suits.map((suit) => `<div class="peek-row"><span class="peek-suit ${suit}">${suitSymbol(suit)}</span><div class="peek-cards">${Array.from({ length: 13 }, (_, index) => {
     const rank = index + 1;
     const card: Card = { id: `${suit}-${rank}`, suit, rank: rank as Card["rank"] };
     return renderCard(card, undefined, `peek-card ${remainingCardIds.has(card.id) ? "" : "peek-drawn"}`, `left:${index * 50}px; z-index:${index}`, false, true);
