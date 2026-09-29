@@ -164,7 +164,13 @@ function attachEvents(): void {
     autoDrawThreeOnlyAtRoundStart = (event.currentTarget as HTMLInputElement).checked;
   });
   document.querySelector(".waste-slot")?.addEventListener("pointerdown", (event) => {
-    if (event instanceof PointerEvent && event.button === 0 && selected?.source === "waste") cancelSelection();
+    if (!(event instanceof PointerEvent) || event.button !== 0) return;
+    if (selected?.source === "waste") { cancelSelection(); return; }
+    const card = (event.target as HTMLElement).closest<HTMLElement>(".history-card:not([data-source='waste'])");
+    if (!card) return;
+    card.classList.remove("shake-vertical");
+    void card.offsetWidth;
+    card.classList.add("shake-vertical");
   });
   document.querySelectorAll<HTMLElement>("[data-source]").forEach((element) => element.addEventListener("pointerdown", selectSource));
   document.querySelectorAll<HTMLElement>("[data-destination]").forEach((element) => element.addEventListener("pointerdown", moveToDestination));
