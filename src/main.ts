@@ -48,6 +48,7 @@ let optionsOpen = false;
 let superFastMode = false;
 let dimUnplayableCards = false;
 let autoDrawThree = false;
+let autoDrawThreeOnlyAtRoundStart = false;
 let isInitialDealing = false;
 let moveHistory: MoveHistoryEntry[] = [];
 let undoCount = 0;
@@ -77,7 +78,7 @@ function render(): void {
       <section class="tableau" aria-label="Tableau">${state.tableau.map(renderPile).join("")}</section>
     </section>
     <p id="status" class="${message.startsWith("That") || message.startsWith("Only") || message.startsWith("Undo failed") ? "error" : ""}">${state.won ? "You won — every suit is complete." : message}</p>
-    ${optionsOpen ? `<div class="options-scrim" data-options-close><section class="options-dialog" role="dialog" aria-modal="true" aria-labelledby="options-title"><button class="options-close" type="button" data-options-close aria-label="Close options">×</button><div class="options-heading"><p class="eyebrow">SAWAYAMA</p><h2 id="options-title">Solitaire</h2><p>Options</p></div><div class="option-row"><div><h3>Super fast mode</h3><p>Shorter card animations. This setting is not active yet.</p></div><label class="switch" aria-label="Enable super fast mode"><input id="super-fast-mode" type="checkbox" ${superFastMode ? "checked" : ""}><span></span></label></div><div class="option-row"><div><h3>Dim unplayable cards</h3><p>Grey cards that cannot be picked up.</p></div><label class="switch" aria-label="Dim unplayable cards"><input id="dim-unplayable-cards" type="checkbox" ${dimUnplayableCards ? "checked" : ""}><span></span></label></div><div class="option-row"><div><h3>Auto draw 3</h3><p>Deal three cards when the waste is empty.</p></div><label class="switch" aria-label="Automatically draw three cards"><input id="auto-draw-three" type="checkbox" ${autoDrawThree ? "checked" : ""}><span></span></label></div><p class="options-note">More settings are on the way.</p></section></div>` : ""}
+    ${optionsOpen ? `<div class="options-scrim" data-options-close><section class="options-dialog" role="dialog" aria-modal="true" aria-labelledby="options-title"><button class="options-close" type="button" data-options-close aria-label="Close options">×</button><div class="options-heading"><p class="eyebrow">SAWAYAMA</p><h2 id="options-title">Solitaire</h2><p>Options</p></div><div class="option-row"><div><h3>Super fast mode</h3><p>Shorter card animations. This setting is not active yet.</p></div><label class="switch" aria-label="Enable super fast mode"><input id="super-fast-mode" type="checkbox" ${superFastMode ? "checked" : ""}><span></span></label></div><div class="option-row"><div><h3>Dim unplayable cards</h3><p>Grey cards that cannot be picked up.</p></div><label class="switch" aria-label="Dim unplayable cards"><input id="dim-unplayable-cards" type="checkbox" ${dimUnplayableCards ? "checked" : ""}><span></span></label></div><div class="option-row"><div><h3>Automatically draw 3 when empty</h3><p>Deal three cards when the waste is empty.</p></div><label class="switch" aria-label="Automatically draw three cards when empty"><input id="auto-draw-three" type="checkbox" ${autoDrawThree ? "checked" : ""}><span></span></label></div><div class="option-subrow"><div><h3>Only at round start</h3><p>Deal once after the opening tableau, preserving Undo during play.</p></div><label class="switch" aria-label="Only automatically draw three at round start"><input id="auto-draw-three-round-start" type="checkbox" ${autoDrawThreeOnlyAtRoundStart ? "checked" : ""} ${autoDrawThree ? "" : "disabled"}><span></span></label></div><p class="options-note">More settings are on the way.</p></section></div>` : ""}
     <div id="ghost" hidden>${selected ? selected.cards.map((card, index) => renderCard(card, undefined, "ghost-card", `top:${index * 34}px; z-index:${index}`)).join("") : ""}</div>
   `;
   attachEvents();
@@ -157,6 +158,10 @@ function attachEvents(): void {
   document.querySelector<HTMLInputElement>("#auto-draw-three")?.addEventListener("change", (event) => {
     autoDrawThree = (event.currentTarget as HTMLInputElement).checked;
     if (autoDrawThree) maybeAutoDrawThree();
+    render();
+  });
+  document.querySelector<HTMLInputElement>("#auto-draw-three-round-start")?.addEventListener("change", (event) => {
+    autoDrawThreeOnlyAtRoundStart = (event.currentTarget as HTMLInputElement).checked;
   });
   document.querySelector(".waste-slot")?.addEventListener("pointerdown", (event) => {
     if (event instanceof PointerEvent && event.button === 0 && selected?.source === "waste") cancelSelection();
@@ -356,17 +361,17 @@ function startInitialDeal(): void {
   render();
   const source = document.querySelector<HTMLElement>(".stock")?.getBoundingClientRect();
   if (!source) return;
-  void playDealSequence(cards, source, "Opening tableau dealt.", ++dealGeneration);
+  void playDealSequence(cards, source, "Opening tableau dealt.", ++dealGeneration, true);
 }
 
-async function playDealSequence(cards: Card[], source: DOMRect, completeMessage: string, generation: number): Promise<void> {
+async function playDealSequence(cards: Card[], source: DOMRect, completeMessage: string, generation: number, isRoundStart = false): Promise<void> {
   await runDealQueue(cards, (card) => animateDealtCard(card, source, generation));
   if (generation !== dealGeneration) return;
   isDealing = false;
   isInitialDealing = false;
   message = completeMessage;
   render();
-  if (!maybeAutoDrawThree()) void runAutoPlay();
+  if (!maybeAutoDrawThree(isRoundStart)) void runAutoPlay();
 }
 
 async function runAutoPlay(): Promise<void> {
@@ -463,8 +468,8 @@ function cardsForUndo(entry: MoveHistoryEntry, stateAfterMove: GameState): Card[
   return stateAfterMove.freeCell ? [stateAfterMove.freeCell] : [];
 }
 
-function maybeAutoDrawThree(): boolean {
-  if (!autoDrawThree || isDealing || isUndoing || isManualAnimating || isAutoPlaying || selected || state.stock.length === 0 || state.waste.length > 0) return false;
+function maybeAutoDrawThree(isRoundStart = false): boolean {
+  if (!autoDrawThree || (autoDrawThreeOnlyAtRoundStart && !isRoundStart) || isDealing || isUndoing || isManualAnimating || isAutoPlaying || selected || state.stock.length === 0 || state.waste.length > 0) return false;
   deal();
   return true;
 }
